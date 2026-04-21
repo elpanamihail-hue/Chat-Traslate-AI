@@ -1,0 +1,38 @@
+import { GoogleGenAI } from "@google/genai";
+
+const apiKey = process.env.GEMINI_API_KEY;
+
+if (!apiKey) {
+  console.warn("GEMINI_API_KEY is not defined. AI features will not work.");
+}
+
+const ai = new GoogleGenAI({ apiKey: apiKey || "" });
+
+export async function translateText(text: string, targetLanguage: string): Promise<string> {
+  if (!apiKey) return text;
+  if (!text || !targetLanguage) return text;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `Translate the following text to ${targetLanguage}. Return ONLY the translated string, nothing else: "${text}"`,
+    });
+    return response.text || text;
+  } catch (error) {
+    console.error("Translation error:", error);
+    return text;
+  }
+}
+
+export async function detectLanguage(text: string): Promise<string> {
+  if (!apiKey) return "English";
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `Detect the language of the following text. Return ONLY the name of the language in English (e.g., "Spanish", "English", "French"): "${text}"`,
+    });
+    return response.text || "English";
+  } catch (error) {
+    return "English";
+  }
+}

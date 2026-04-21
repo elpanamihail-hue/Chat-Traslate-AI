@@ -1,0 +1,73 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-w-bg: var(--bg);
+  --color-w-sidebar: var(--sidebar);
+  --color-w-header: var(--header);
+  --color-w-text: var(--text);
+  --color-w-muted: var(--muted);
+  --color-w-accent: var(--accent);
+  --color-w-bubble-sent: var(--bubble-sent);
+  --color-w-bubble-received: var(--bubble-received);
+  --color-w-input: var(--input);
+  --color-w-darker: var(--darker);
+}
+
+:root {
+  --bg: #0B0E11;
+  --sidebar: #111B21;
+  --header: #202C33;
+  --text: #E9EDEF;
+  --muted: #8696A0;
+  --accent: #60b539;
+  --bubble-sent: #005C4B;
+  --bubble-received: #202C33;
+  --input: #2A3942;
+  --darker: #0B141A;
+}
+
+[data-theme='light'] {
+  --bg: #F0F2F5;
+  --sidebar: #FFFFFF;
+  --header: #F0F2F5;
+  --text: #111B21;
+  --muted: #667781;
+  --accent: #60b539;
+  --bubble-sent: #D9FDD3;
+  --bubble-received: #FFFFFF;
+  --input: #FFFFFF;
+  --darker: #E9EDEF;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-w-bg);
+    color: var(--color-w-text);
+    @apply font-sans transition-colors duration-300;
+  }
+}
+
+.chat-bg-overlay {
+  background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
+  background-blend-mode: overlay;
+  background-color: var(--color-w-darker);
+}
+
+.chat-bubble-sent {
+  background-color: var(--color-w-bubble-sent);
+  color: var(--color-w-text);
+}
+
+[data-theme='dark'] .chat-bubble-sent {
+  color: #FFFFFF;
+}
+
+.chat-bubble-received {
+  background-color: var(--color-w-bubble-received);
+  color: var(--color-w-text);
+}
+

@@ -1,0 +1,30 @@
+{
+  "short_name": "ChatTranslate",
+  "name": "ChatTranslate",
+  "description": "Mensajería global con traducción instantánea. Solicitamos acceso a la Cámara y el Micrófono para permitir videollamadas con traducción en tiempo real mediante Gemini AI.",
+  "icons": [
+    {
+      "src": "/10867.jpg",
+      "type": "image/jpeg",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/10867.jpg",
+      "type": "image/jpeg",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#60b539",
+  "background_color": "#60b539",
+  "permissions": [
+    "camera",
+    "microphone",
+    "notifications"
+  ],
+  "prefer_related_applications": true,
+  "gcm_sender_id": "103953800507"
+}
