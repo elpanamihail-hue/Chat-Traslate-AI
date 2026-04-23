@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, collection, addDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import Peer, { DataConnection } from 'peerjs';
 import { UserProfile } from '../types';
 import { translateText } from '../services/ai';
 import { 
@@ -36,10 +35,11 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
   
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const peerRef = useRef<Peer | null>(null);
-  const currentCallRef = useRef<any>(null);
-  const dataConnRef = useRef<DataConnection | null>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  const screenStreamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<any>(null);
+  const isRecognitionActiveRef = useRef(false);
   const subtitleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Call Duration Timer
@@ -77,8 +77,30 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
     }
   }, [callId, onClose]);
 
+  const stopAllTracks = (stream: MediaStream | null) => {
+    if (stream) {
+      stream.getTracks().forEach(track => {
+        track.stop();
+        track.enabled = false;
+      });
+    }
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getTracks().forEach(track => track.stop());
+      screenStreamRef.current = null;
+    }
+  };
+
   useEffect(() => {
     const initCall = async () => {
+      if (!callId) return;
+
+      const configuration = {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+        ],
+      };
+
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: type === 'video',
@@ -87,96 +109,127 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
         setLocalStream(stream);
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
 
-        // Use profile.uid so callers can find us
-        peerRef.current = new Peer(profile.uid); 
+        const pc = new RTCPeerConnection(configuration);
+        pcRef.current = pc;
 
-        peerRef.current.on('open', (id) => {
-          console.log('My peer ID is: ' + id);
-          
-          if (isCaller) {
-            // Only caller initiates call/connection
-            const call = peerRef.current!.call(remotePeerId, stream);
-            setupCallListeners(call);
+        // Add local tracks to peer connection
+        stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
-            const conn = peerRef.current!.connect(remotePeerId);
-            setupDataConn(conn);
+        pc.ontrack = (event) => {
+          setRemoteStream(event.streams[0]);
+          if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
+        };
+
+        // Data Channel for subtitles
+        if (isCaller) {
+          const dc = pc.createDataChannel('chat');
+          setupDataChannel(dc);
+        } else {
+          pc.ondatachannel = (event) => setupDataChannel(event.channel);
+        }
+
+        // Signaling logic
+        const callDoc = doc(db, 'calls', callId);
+        const callerCandidatesCollection = collection(callDoc, 'callerCandidates');
+        const recipientCandidatesCollection = collection(callDoc, 'recipientCandidates');
+
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            addDoc(isCaller ? callerCandidatesCollection : recipientCandidatesCollection, event.candidate.toJSON());
           }
-        });
+        };
 
-        peerRef.current.on('call', (call) => {
-          call.answer(stream);
-          setupCallListeners(call);
-        });
+        if (isCaller) {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          await updateDoc(callDoc, { offer: { type: offer.type, sdp: offer.sdp } });
 
-        peerRef.current.on('connection', (conn) => {
-          setupDataConn(conn);
-        });
+          onSnapshot(callDoc, (snapshot) => {
+            const data = snapshot.data();
+            if (!pc.currentRemoteDescription && data?.answer) {
+              const answer = new RTCSessionDescription(data.answer);
+              pc.setRemoteDescription(answer);
+            }
+          });
 
-        peerRef.current.on('error', (err) => {
-          console.warn('Peer error:', err);
-          // If Peer ID taken, another instance might be open
-        });
+          onSnapshot(recipientCandidatesCollection, (snapshot) => {
+            snapshot.docChanges().forEach((change) => {
+              if (change.type === 'added') {
+                const candidate = new RTCIceCandidate(change.doc.data());
+                pc.addIceCandidate(candidate);
+              }
+            });
+          });
+        } else {
+          onSnapshot(callDoc, async (snapshot) => {
+            const data = snapshot.data();
+            if (!pc.currentRemoteDescription && data?.offer) {
+              const offer = new RTCSessionDescription(data.offer);
+              await pc.setRemoteDescription(offer);
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              await updateDoc(callDoc, { answer: { type: answer.type, sdp: answer.sdp } });
+            }
+          });
 
-        // STT Logic
+          onSnapshot(callerCandidatesCollection, (snapshot) => {
+            snapshot.docChanges().forEach((change) => {
+              if (change.type === 'added') {
+                const candidate = new RTCIceCandidate(change.doc.data());
+                pc.addIceCandidate(candidate);
+              }
+            });
+          });
+        }
+
         initSTT();
 
       } catch (err) {
-        console.error('Failed to get local stream', err);
+        console.error('Failed to init WebRTC', err);
         onClose();
       }
     };
 
-    const setupCallListeners = (call: any) => {
-      currentCallRef.current = call;
-      call.on('stream', (rStream: MediaStream) => {
-        setRemoteStream(rStream);
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = rStream;
-      });
-      call.on('close', onClose);
-      call.on('error', (err: any) => {
-        console.error('Peer Call Error:', err);
-        onClose();
-      });
-    };
-
-    const setupDataConn = (conn: DataConnection) => {
-      dataConnRef.current = conn;
-      conn.on('data', async (data: any) => {
-        if (typeof data === 'object' && data.type === 'subtitle') {
-          const text = data.text;
-          setRemoteSubtitles(text);
-          
-          // Clear old subtitles if new one is final
-          if (data.isFinal) {
-            handleTranslation(text);
-          }
+    const setupDataChannel = (dc: RTCDataChannel) => {
+      dataChannelRef.current = dc;
+      dc.onmessage = async (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'subtitle') {
+          setRemoteSubtitles(data.text);
+          if (data.isFinal) handleTranslation(data.text);
         }
-      });
+      };
     };
 
     initCall();
 
     return () => {
-      localStream?.getTracks().forEach(t => t.stop());
-      peerRef.current?.destroy();
-      if (recognitionRef.current) recognitionRef.current.stop();
+      stopAllTracks(localStream);
+      pcRef.current?.close();
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch(e){}
+      }
       if (subtitleTimeoutRef.current) clearTimeout(subtitleTimeoutRef.current);
     };
   }, []);
 
   const handleScreenShare = async () => {
+    if (!navigator.mediaDevices.getDisplayMedia) {
+      alert("La función de compartir pantalla solo está disponible en computadoras");
+      return;
+    }
+
     if (!isScreenSharing) {
       try {
         const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        screenStreamRef.current = screenStream;
         const videoTrack = screenStream.getVideoTracks()[0];
         
-        // Replace video track in current peer call
-        if (currentCallRef.current) {
-          const sender = currentCallRef.current.peerConnection.getSenders().find((s: any) => s.track.kind === 'video');
+        if (pcRef.current) {
+          const sender = pcRef.current.getSenders().find(s => s.track?.kind === 'video');
           if (sender) sender.replaceTrack(videoTrack);
         }
 
-        // Update local preview
         if (localVideoRef.current) localVideoRef.current.srcObject = screenStream;
         
         videoTrack.onended = () => stopScreenShare();
@@ -193,8 +246,8 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
   const stopScreenShare = async () => {
     if (localStream) {
       const videoTrack = localStream.getVideoTracks()[0];
-      if (currentCallRef.current) {
-        const sender = currentCallRef.current.peerConnection.getSenders().find((s: any) => s.track.kind === 'video');
+      if (pcRef.current) {
+        const sender = pcRef.current.getSenders().find(s => s.track?.kind === 'video');
         if (sender) sender.replaceTrack(videoTrack);
       }
       if (localVideoRef.current) localVideoRef.current.srcObject = localStream;
@@ -236,14 +289,29 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
     recognition.interimResults = true;
     
     const langMap: {[key: string]: string} = {
-      'Spanish': 'es-ES',
-      'English': 'en-US',
-      'French': 'fr-FR',
-      'German': 'de-DE',
-      'Italian': 'it-IT',
-      'Portuguese': 'pt-PT'
+      'Spanish': 'es-ES', 'English': 'en-US', 'French': 'fr-FR', 'German': 'de-DE',
+      'Italian': 'it-IT', 'Portuguese': 'pt-PT', 'Russian': 'ru-RU', 'Chinese (Simplified)': 'zh-CN',
+      'Chinese (Traditional)': 'zh-TW', 'Japanese': 'ja-JP', 'Korean': 'ko-KR', 'Arabic': 'ar-SA',
+      'Hindi': 'hi-IN', 'Dutch': 'nl-NL', 'Swedish': 'sv-SE', 'Polish': 'pl-PL', 'Turkish': 'tr-TR',
+      'Vietnamese': 'vi-VN', 'Thai': 'th-TH', 'Indonesian': 'id-ID', 'Greek': 'el-GR', 'Hebrew': 'he-IL'
     };
     recognition.lang = langMap[profile.nativeLanguage] || 'es-ES';
+
+    recognition.onstart = () => {
+      isRecognitionActiveRef.current = true;
+    };
+
+    recognition.onend = () => {
+      isRecognitionActiveRef.current = false;
+      // Auto-restart if mic is still on and status is accepted
+      if (isMicOn && callStatus === 'accepted') {
+        try {
+          recognition.start();
+        } catch (e) {
+          console.error('Failed to restart recognition:', e);
+        }
+      }
+    };
 
     recognition.onresult = (event: any) => {
       const result = event.results[event.results.length - 1];
@@ -252,13 +320,13 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
       
       setMySubtitles(transcript);
 
-      // Send to peer
-      if (dataConnRef.current && dataConnRef.current.open) {
-        dataConnRef.current.send({
+      // Send to peer via DataChannel
+      if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
+        dataChannelRef.current.send(JSON.stringify({
           type: 'subtitle',
           text: transcript,
           isFinal: isFinal
-        });
+        }));
       }
 
       // Reset local subtitle timer
@@ -271,26 +339,49 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
     recognition.onerror = (event: any) => {
       console.error('Recognition error:', event.error);
       if (event.error === 'no-speech') return;
+      if (event.error === 'not-allowed') {
+        console.warn('Microphone permission denied for SpeechRecognition');
+        return;
+      }
+      if (event.error === 'aborted') {
+        isRecognitionActiveRef.current = false;
+        return;
+      }
+      
       try {
         recognition.stop();
-        setTimeout(() => recognition.start(), 1000);
       } catch (e) {}
     };
 
-    recognition.start();
-    recognitionRef.current = recognition;
+    try {
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch (e) {
+      console.error('Failed to start recognition:', e);
+    }
   };
 
   const toggleMic = () => {
     if (localStream) {
       const audioTrack = localStream.getAudioTracks()[0];
-      audioTrack.enabled = !isMicOn;
-      setIsMicOn(!isMicOn);
+      const newMicState = !isMicOn;
+      audioTrack.enabled = newMicState;
+      setIsMicOn(newMicState);
       
-      if (!isMicOn) {
-        recognitionRef.current?.start();
+      if (newMicState) {
+        if (!isRecognitionActiveRef.current) {
+          try {
+            recognitionRef.current?.start();
+          } catch (e) {
+            console.error('Manual start failed:', e);
+          }
+        }
       } else {
-        recognitionRef.current?.stop();
+        if (isRecognitionActiveRef.current) {
+          try {
+            recognitionRef.current?.stop();
+          } catch (e) {}
+        }
       }
     }
   };
@@ -302,6 +393,14 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
     }
   };
 
+  const endCall = () => {
+    stopAllTracks(localStream);
+    if (callId) {
+      updateDoc(doc(db, 'calls', callId), { status: 'ended' }).catch(console.error);
+    }
+    onClose();
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0 }}
@@ -309,21 +408,23 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center p-4 md:p-8"
     >
-      <div className="relative w-full h-full max-w-6xl aspect-video bg-gray-900 md:rounded-3xl overflow-hidden shadow-2xl border-white/10">
+      <div className="relative w-full h-full max-w-6xl aspect-video bg-gray-900 md:rounded-3xl overflow-hidden shadow-2xl border-white/10 flex flex-col md:block">
         
         {/* Remote Video (Main) / Voice Call Avatar */}
-        {type === 'video' ? (
-          <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center bg-w-sidebar">
-             <div className="relative mb-6">
-                <div className="absolute -inset-8 bg-w-accent/10 rounded-full animate-pulse"></div>
-                <img src={profile.photoURL} alt={remoteName} className="w-40 h-40 rounded-full border-4 border-w-accent shadow-2xl" />
-             </div>
-             <h2 className="text-3xl font-bold text-white mb-2">{remoteName}</h2>
-             <p className="text-w-accent font-mono tracking-widest uppercase text-xs">Llamada de Voz • Gemini AI</p>
-          </div>
-        )}
+        <div className="flex-1 md:absolute md:inset-0">
+          {type === 'video' ? (
+            <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center bg-w-sidebar">
+               <div className="relative mb-6">
+                  <div className="absolute -inset-8 bg-w-accent/10 rounded-full animate-pulse"></div>
+                  <img src={profile.photoURL} alt={remoteName} className="w-40 h-40 rounded-full border-4 border-w-accent shadow-2xl" />
+               </div>
+               <h2 className="text-3xl font-bold text-white mb-2">{remoteName}</h2>
+               <p className="text-w-accent font-mono tracking-widest uppercase text-xs">Llamada de Voz • Gemini AI</p>
+            </div>
+          )}
+        </div>
         {!remoteStream && type === 'video' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm z-10 text-white">
             <div className="w-24 h-24 bg-gray-800 rounded-full flex items-center justify-center mb-4 animate-pulse">
@@ -340,7 +441,7 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
 
         {/* Local Video (PiP) */}
         {type === 'video' && (
-          <div className="absolute top-6 right-6 w-1/4 md:w-1/5 aspect-video bg-black rounded-2xl overflow-hidden shadow-xl border-2 border-white/20 z-20">
+          <div className="relative md:absolute top-auto md:top-6 right-auto md:right-6 w-full h-1/3 md:w-1/5 md:aspect-video bg-black md:rounded-2xl overflow-hidden shadow-xl border-t-2 md:border-2 border-white/20 z-20">
             <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
             {!isVideoOn && (
               <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
@@ -425,7 +526,7 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
               </>
             )}
 
-            <button onClick={onClose} className="w-16 h-16 md:w-20 md:h-20 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-95 group">
+            <button onClick={endCall} className="w-16 h-16 md:w-20 md:h-20 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-95 group">
               <PhoneOff className="w-8 h-8 group-hover:rotate-[135deg] transition-transform duration-300" />
             </button>
           </div>

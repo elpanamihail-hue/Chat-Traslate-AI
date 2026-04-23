@@ -42,13 +42,19 @@ service cloud.firestore {
       allow create: if isSignedIn() && 
         request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants &&
         request.resource.data.senderId == request.auth.uid;
+      allow update: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
     }
 
     match /calls/{callId} {
-      allow read: if isSignedIn() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.recipientId);
+      allow read, update, delete: if isSignedIn() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.recipientId);
       allow create: if isSignedIn() && request.resource.data.callerId == request.auth.uid;
-      allow update: if isSignedIn() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.recipientId);
-      allow delete: if isSignedIn() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.recipientId);
+
+      match /callerCandidates/{id} {
+        allow read, write: if isSignedIn();
+      }
+      match /recipientCandidates/{id} {
+        allow read, write: if isSignedIn();
+      }
     }
   }
 }

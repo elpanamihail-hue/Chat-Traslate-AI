@@ -31,6 +31,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [activeCall, setActiveCall] = useState<{peerId: string, remoteName: string, callId?: string, type?: 'video' | 'voice', isCaller?: boolean} | null>(null);
   const [incomingCall, setIncomingCall] = useState<any>(null);
+  const [sessionStartTime] = useState(Date.now());
   const [sessionSetupDone, setSessionSetupDone] = useState(false);
 
   const { mic, camera, notifications, requestAll } = usePermissions();
@@ -173,10 +174,15 @@ export default function App() {
   // Incoming Call Listener
   useEffect(() => {
     if (profile) {
+      // Create a date for "recent" calls (e.g., in the last 1 minute)
+      // This prevents very old 'ringing' calls from popping up on startup
+      const oneMinuteAgo = new Date(Date.now() - 60000);
+
       const q = query(
         collection(db, 'calls'),
         where('recipientId', '==', profile.uid),
-        where('status', '==', 'ringing')
+        where('status', '==', 'ringing'),
+        where('createdAt', '>', oneMinuteAgo)
       );
 
       const unsub = onSnapshot(q, (snapshot) => {
@@ -191,6 +197,8 @@ export default function App() {
         } else {
           setIncomingCall(null);
         }
+      }, (err) => {
+        console.error("Call listener error:", err);
       });
       return () => unsub();
     }

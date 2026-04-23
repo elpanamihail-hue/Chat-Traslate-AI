@@ -28,5 +28,7 @@ export interface Message {
   translations?: { [lang: string]: string };
   fileUrl?: string;
   fileName?: string;
+  audioUrl?: string;
+  audioDuration?: number;
   createdAt: any;
 }

@@ -8,6 +8,6 @@ export const LANGUAGES = [
   "Irish", "Icelandic", "Georgian", "Armenian", "Azerbaijani", "Kazakh",
   "Uzbek", "Persian", "Bengali", "Punjabi", "Marathi", "Telugu", "Tamil", "Gujarati",
   "Urdu", "Kannada", "Malayalam", "Malay", "Filipino", "Serbian", "Albanian",
-  "Basque", "Belarusian", "Burmese", "Khmer", "Lao", "Macedonian", "Mongolian",
+  "Belarusian", "Burmese", "Khmer", "Lao", "Macedonian", "Mongolian",
   "Nepali", "Pashto", "Sinhala", "Swahili", "Welsh"
 ].sort();

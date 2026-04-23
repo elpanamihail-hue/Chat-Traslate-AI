@@ -4,10 +4,12 @@ import { ref, uploadBytesResumable, getDownloadURL, updateMetadata } from 'fireb
 import { db, storage } from '../lib/firebase';
 import { UserProfile, Chat, Message } from '../types';
 import { translateText, detectLanguage } from '../services/ai';
+import { compressImage } from '../lib/fileUtils';
 import { MessageSkeleton } from './ui/Skeleton';
+import AudioPlayer from './AudioPlayer';
 import { 
   Send, Paperclip, Phone, Video, MoreVertical, ChevronLeft, 
-  Smile, Mic, FileIcon, ImageIcon, Download, Globe, CheckCheck, Loader2, X, ShieldCheck
+  Smile, Mic, MicOff, FileIcon, ImageIcon, Download, Globe, CheckCheck, Loader2, X, ShieldCheck
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -25,6 +27,11 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
   const [sending, setSending] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordTimerRef = useRef<NodeJS.Timeout | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -39,6 +46,20 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
     const unsub = onSnapshot(q, (snapshot) => {
       const msgs = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Message));
       setMessages(msgs);
+
+      // Automatic Translation Logic
+      msgs.forEach(async (msg) => {
+        if (msg.senderId !== profile.uid && msg.text && !msg.translations?.[profile.nativeLanguage]) {
+          // Check if it's already translated to our language
+          // To avoid infinite loop, we only translate if originalLanguage is different
+          if (msg.originalLanguage && msg.originalLanguage !== profile.nativeLanguage) {
+             const translated = await translateText(msg.text, profile.nativeLanguage);
+             await updateDoc(doc(db, 'chats', chat.id, 'messages', msg.id), {
+               [`translations.${profile.nativeLanguage}`]: translated
+             });
+          }
+        }
+      });
     });
 
     return () => unsub();
@@ -50,54 +71,57 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
     }
   }, [messages]);
 
-  const handleSendMessage = async (e?: React.FormEvent) => {
+  const handleSendMessage = async (e?: React.FormEvent, audioBlob?: Blob, audioDuration?: number) => {
     if (e) e.preventDefault();
-    if ((!inputText && !file) || sending || !otherUser) return;
+    if ((!inputText && !file && !audioBlob) || sending || !otherUser) return;
 
     setSending(true);
     setUploadProgress(0);
     try {
       let fileUrl = '';
       let fileName = '';
+      let audioUrl = '';
 
-      if (file) {
-        // Original Quality - No compression
-        const isLarge = file.size > 2 * 1024 * 1024; // 2MB
-        
-        const fileRef = ref(storage, `chats/${chat.id}/${Date.now()}_${file.name}`);
-        
-        // Metadata to force download with original name
-        const metadata = {
-          contentDisposition: `attachment; filename="${file.name}"`,
-          customMetadata: {
-            originalName: file.name
-          }
-        };
-
-        const uploadTask = uploadBytesResumable(fileRef, file, metadata);
-
-        fileUrl = await new Promise((resolve, reject) => {
+      // Handle Audio Upload
+      if (audioBlob) {
+        const audioRef = ref(storage, `chats/${chat.id}/audios/${Date.now()}.webm`);
+        const uploadTask = uploadBytesResumable(audioRef, audioBlob);
+        audioUrl = await new Promise((resolve, reject) => {
           uploadTask.on('state_changed', 
-            (snapshot) => {
-              const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-              setUploadProgress(progress);
-            }, 
-            (error) => reject(error), 
-            () => {
-              getDownloadURL(uploadTask.snapshot.ref).then(resolve).catch(reject);
-            }
+            snapshot => setUploadProgress((snapshot.bytesTransferred / snapshot.totalBytes) * 100),
+            err => reject(err),
+            () => getDownloadURL(uploadTask.snapshot.ref).then(resolve).catch(reject)
           );
         });
-        
+      }
+
+      // Handle File Upload (Original code preserved)
+      if (file) {
+        // Original Quality - No compression
+        const fileRef = ref(storage, `chats/${chat.id}/${Date.now()}_${file.name}`);
+        const metadata = {
+          contentDisposition: `attachment; filename="${file.name}"`,
+          customMetadata: { originalName: file.name }
+        };
+        const uploadTask = uploadBytesResumable(fileRef, file, metadata);
+        fileUrl = await new Promise((resolve, reject) => {
+          uploadTask.on('state_changed', 
+            snapshot => setUploadProgress((snapshot.bytesTransferred / snapshot.totalBytes) * 100),
+            err => reject(err),
+            () => getDownloadURL(uploadTask.snapshot.ref).then(resolve).catch(reject)
+          );
+        });
         fileName = file.name;
       }
 
-      const textToSend = inputText;
+      const textToSend = inputText.trim();
+      if (!textToSend && !file && !audioBlob) return;
+
       const detectedLang = textToSend ? await detectLanguage(textToSend) : '';
       
-      // Translate to receiver's native language
       const translations: { [lang: string]: string } = {};
       if (textToSend && otherUser.nativeLanguage !== detectedLang) {
+        // Explicitly translate to the other user's language before sending
         const translated = await translateText(textToSend, otherUser.nativeLanguage);
         translations[otherUser.nativeLanguage] = translated;
       }
@@ -106,15 +130,17 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
         chatId: chat.id,
         senderId: profile.uid,
         text: textToSend,
-        originalLanguage: detectedLang,
+        originalLanguage: detectedLang || profile.nativeLanguage,
         translations: translations,
         fileUrl,
         fileName,
+        audioUrl,
+        audioDuration,
         createdAt: serverTimestamp()
       });
 
       await updateDoc(doc(db, 'chats', chat.id), {
-        lastMessage: textToSend || `Archivo: ${fileName}`,
+        lastMessage: textToSend || (audioUrl ? '🎤 Audio' : `Archivo: ${fileName}`),
         lastMessageSenderId: profile.uid,
         updatedAt: serverTimestamp()
       });
@@ -142,6 +168,48 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
     } finally {
       setSending(false);
     }
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        handleSendMessage(undefined, audioBlob, recordingTime);
+        stream.getTracks().forEach(t => t.stop());
+        setRecordingTime(0);
+      };
+
+      recorder.start();
+      setIsRecording(true);
+      recordTimerRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error("Error starting recording:", err);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+    }
+  };
+
+  const formatTime = (time: number) => {
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -265,6 +333,15 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
                       </div>
                     )}
 
+                    {/* Audio handling */}
+                    {msg.audioUrl && (
+                      <AudioPlayer 
+                        url={msg.audioUrl} 
+                        duration={msg.audioDuration} 
+                        isMine={isMine} 
+                      />
+                    )}
+
                     {/* Text Content */}
                     {msg.text && (
                       <div className="flex flex-col gap-2">
@@ -357,23 +434,40 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
             />
           </div>
           
-          <div className="flex-1 bg-w-input rounded-xl border border-white/5 flex items-center px-4 transition-all focus-within:border-w-accent/30 shadow-inner">
-            <input 
-              type="text" 
-              placeholder={`Escribe tu mensaje en ${profile.nativeLanguage}...`}
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              className="flex-1 bg-transparent py-3 text-sm focus:outline-none text-w-text placeholder:text-w-muted"
-            />
+          <div className="flex-1 bg-w-input rounded-xl border border-white/5 flex items-center px-4 transition-all focus-within:border-w-accent/30 shadow-inner overflow-hidden">
+            {isRecording ? (
+              <div className="flex-1 py-3 flex items-center justify-between px-2">
+                <div className="flex items-center gap-3">
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+                  <span className="text-sm font-mono text-red-500 font-bold tracking-widest">{formatTime(recordingTime)}</span>
+                </div>
+                <span className="text-[10px] text-w-muted uppercase font-bold animate-bounce hidden md:inline">Grabando Mensaje de Voz...</span>
+              </div>
+            ) : (
+              <input 
+                type="text" 
+                placeholder={`Escribe tu mensaje en ${profile.nativeLanguage}...`}
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                className="flex-1 bg-transparent py-3 text-sm focus:outline-none text-w-text placeholder:text-w-muted"
+              />
+            )}
             <Smile className="w-5 h-5 text-w-muted hover:text-white cursor-pointer ml-2" />
           </div>
 
           <button 
-            type="submit" 
+            type={isRecording || (!inputText && !file) ? "button" : "submit"}
+            onMouseDown={!inputText && !file ? startRecording : undefined}
+            onMouseUp={!inputText && !file ? stopRecording : undefined}
+            onTouchStart={!inputText && !file ? startRecording : undefined}
+            onTouchEnd={!inputText && !file ? stopRecording : undefined}
             disabled={sending}
-            className="bg-[#00A884] hover:bg-[#06cf9c] text-white p-3.5 rounded-full shadow-lg shadow-green-900/20 transition-all active:scale-95 disabled:opacity-50"
+            className={cn(
+              "text-white p-3.5 rounded-full shadow-lg transition-all active:scale-95 disabled:opacity-50",
+              isRecording ? "bg-red-500 scale-125" : "bg-[#00A884] hover:bg-[#06cf9c]"
+            )}
           >
-            {sending ? <Loader2 className="animate-spin w-5 h-5" /> : inputText || file ? <Send className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+            {sending ? <Loader2 className="animate-spin w-5 h-5" /> : (inputText || file) ? <Send className="w-5 h-5" /> : <Mic className={cn("w-5 h-5", isRecording && "animate-pulse")} />}
           </button>
         </form>
       </div>
