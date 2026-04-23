@@ -12,12 +12,16 @@ interface Props {
   onOpenSettings: () => void;
 }
 
+import { t } from '../lib/i18n';
+
 export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSettings }: Props) {
   const [chats, setChats] = useState<Chat[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
   const [showInviteToast, setShowInviteToast] = useState(false);
+  
+  const lang = profile.nativeLanguage;
 
   const copyInviteLink = () => {
     const link = `${window.location.origin}/?invite=${profile.uid}`;
@@ -142,7 +146,7 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
           <Search className="w-4 h-4 text-w-muted" />
           <input 
             type="text" 
-            placeholder={isSearching ? "Buscar personas..." : "Buscar o empezar un chat"}
+            placeholder={isSearching ? t('Buscar personas...', lang) : t('Buscar o empezar un chat', lang)}
             value={searchTerm}
             onChange={(e) => isSearching ? handleSearch(e.target.value) : setSearchTerm(e.target.value)}
             className="bg-transparent border-none focus:outline-none flex-1 text-sm text-w-text placeholder:text-w-muted"
@@ -220,7 +224,7 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
                       </span>
                     </div>
                     <p className="text-sm text-w-muted truncate">
-                      {chat.lastMessage || 'Empieza una conversación...'}
+                      {chat.lastMessage || t('Empieza una conversación...', lang)}
                     </p>
                   </div>
                 </div>
@@ -237,7 +241,7 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
           <span className="px-2 py-0.5 rounded-full bg-w-accent/10 text-w-accent text-[10px] font-bold uppercase tracking-tighter shadow-[0_0_10px_rgba(37,211,102,0.1)]">Active</span>
         </div>
         <div className="flex items-center gap-2 text-[10px]">
-          <span className="text-w-muted uppercase tracking-widest">Native:</span>
+          <span className="text-w-muted uppercase tracking-widest">{t('Idioma nativo', lang)}:</span>
           <span className="px-2 py-1 bg-white/5 rounded text-w-text font-semibold border border-white/5">{profile.nativeLanguage}</span>
           <CheckCheck className="w-4 h-4 ml-auto text-w-accent" />
         </div>

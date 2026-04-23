@@ -21,6 +21,8 @@ function StatusIcon({ status }: { status: string }) {
   return <div className="w-4 h-4 rounded-full border-2 border-w-muted border-t-transparent animate-spin"></div>;
 }
 
+import { t } from '../lib/i18n';
+
 export default function Settings({ profile, onClose }: Props) {
   const [username, setUsername] = useState(profile.username);
   const [language, setLanguage] = useState(profile.nativeLanguage);
@@ -28,6 +30,8 @@ export default function Settings({ profile, onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const { mic, camera, notifications, requestAll } = usePermissions();
+  
+  const lang = profile.nativeLanguage;
   
   const [notifStatus, setNotifStatus] = useState(
     typeof Notification !== 'undefined' ? Notification.permission : 'default'
@@ -97,7 +101,7 @@ export default function Settings({ profile, onClose }: Props) {
         <div className="flex flex-col mb-2 items-center md:items-start text-center md:text-left">
           <h2 className="text-2xl md:text-3xl font-bold tracking-tight">{profile.username}</h2>
           <p className="text-w-muted flex items-center gap-2 mt-1 text-sm font-medium">
-            <Globe className="w-4 h-4 text-w-accent" /> Nativo en {profile.nativeLanguage}
+            <Globe className="w-4 h-4 text-w-accent" /> {t('Nativo en', lang)} {profile.nativeLanguage}
           </p>
         </div>
       </div>
@@ -106,11 +110,11 @@ export default function Settings({ profile, onClose }: Props) {
         {/* Profile Section */}
         <section>
           <h3 className="text-w-accent font-bold text-xs uppercase tracking-[0.2em] mb-8 flex items-center gap-3">
-            <User className="w-4 h-4" /> Perfil de Usuario
+            <User className="w-4 h-4" /> {t('Perfil de Usuario', lang)}
           </h3>
           <div className="space-y-8 bg-w-header/40 p-8 rounded-3xl border border-white/5 backdrop-blur-sm">
             <div>
-              <label className="block text-[10px] font-bold text-w-muted uppercase tracking-widest mb-3">Nombre de Usuario</label>
+              <label className="block text-[10px] font-bold text-w-muted uppercase tracking-widest mb-3">{t('Nombre de Usuario', lang)}</label>
               <input 
                 type="text" 
                 value={username}
@@ -154,7 +158,7 @@ export default function Settings({ profile, onClose }: Props) {
         {/* Theme Section */}
         <section>
           <h3 className="text-w-accent font-bold text-xs uppercase tracking-[0.2em] mb-8 flex items-center gap-3">
-             {theme === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />} Apariencia
+             {theme === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />} {t('Apariencia', lang)}
           </h3>
           <div className="bg-w-header/40 p-1 rounded-3xl border border-w-muted/10 backdrop-blur-sm flex">
             <button 
@@ -164,7 +168,7 @@ export default function Settings({ profile, onClose }: Props) {
                 theme === 'dark' ? "bg-w-accent text-[#0B0E11] shadow-lg" : "text-w-muted hover:text-w-text"
               )}
             >
-              <Moon className="w-4 h-4" /> Oscuro
+              <Moon className="w-4 h-4" /> {t('Oscuro', lang)}
             </button>
             <button 
               onClick={() => setTheme('light')}
@@ -173,7 +177,7 @@ export default function Settings({ profile, onClose }: Props) {
                 theme === 'light' ? "bg-w-accent text-white shadow-lg" : "text-w-muted hover:text-w-text"
               )}
             >
-              <Sun className="w-4 h-4" /> Claro
+              <Sun className="w-4 h-4" /> {t('Claro', lang)}
             </button>
           </div>
         </section>
@@ -244,7 +248,7 @@ export default function Settings({ profile, onClose }: Props) {
           <button className="w-full flex items-center justify-between p-5 hover:bg-red-500/10 rounded-2xl transition-all text-red-400 font-bold" onClick={() => auth.signOut()}>
             <div className="flex items-center gap-4">
               <LogOut className="w-5 h-5" />
-              <span>Cerrar Sesión</span>
+              <span>{t('Cerrar sesión', lang)}</span>
             </div>
           </button>
         </div>
@@ -253,14 +257,14 @@ export default function Settings({ profile, onClose }: Props) {
       {/* Footer Save Area */}
       <div className="p-8 bg-w-header/80 backdrop-blur-md border-t border-white/10 flex items-center justify-between">
         <p className={cn("text-xs font-mono uppercase tracking-widest", message.includes('Error') ? 'text-red-400' : 'text-w-accent')}>
-          {message || 'Configuración del sistema'}
+          {message || t('Configuración del sistema', lang)}
         </p>
         <button 
           onClick={handleUpdate}
           disabled={saving}
           className="bg-w-accent hover:bg-w-accent/80 text-w-bg px-10 py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-[0_0_20px_rgba(37,211,102,0.2)] transition-all active:scale-95 disabled:opacity-50"
         >
-          {saving ? 'Procesando...' : 'Aplicar Cambios'}
+          {saving ? t('Procesando...', lang) : t('Aplicar Cambios', lang)}
         </button>
       </div>
     </div>

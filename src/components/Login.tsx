@@ -2,6 +2,7 @@ import { signInWithPopup } from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
 import { LogIn, MessageSquare, Globe, Video, ShieldCheck } from 'lucide-react';
 import { motion } from 'motion/react';
+import { t } from '../lib/i18n';
 
 export default function Login() {
   const handleLogin = async () => {
@@ -11,6 +12,15 @@ export default function Login() {
       console.error("Login failed:", error);
     }
   };
+
+  // Guess language from browser
+  const browserLang = typeof navigator !== 'undefined' ? navigator.language : 'en';
+  const lang = browserLang.startsWith('es') ? 'Spanish' : 
+               browserLang.startsWith('en') ? 'English' :
+               browserLang.startsWith('fr') ? 'French' :
+               browserLang.startsWith('de') ? 'German' :
+               browserLang.startsWith('it') ? 'Italian' :
+               browserLang.startsWith('pt') ? 'Portuguese' : 'English';
 
   return (
     <div className="min-h-screen w-screen flex flex-col items-center justify-center bg-w-bg font-sans p-6 relative overflow-hidden">
@@ -30,11 +40,11 @@ export default function Login() {
           <h1 className="text-4xl font-black text-w-text tracking-tighter mb-3 uppercase">ChatTranslate</h1>
           <div className="flex items-center gap-2 mb-4">
              <span className="h-[1px] w-8 bg-white/10"></span>
-             <span className="text-[10px] font-bold text-w-muted uppercase tracking-[0.3em]">Global Messaging Service</span>
+             <span className="text-[10px] font-bold text-w-muted uppercase tracking-[0.3em]">{t('Global Messaging Service', lang)}</span>
              <span className="h-[1px] w-8 bg-white/10"></span>
           </div>
           <p className="text-w-muted text-center text-sm leading-relaxed max-w-[280px]">
-            Conecta con el mundo sin barreras lingüísticas, impulsado por <span className="text-w-text font-bold">Gemini AI</span>.
+            {t('Conecta con el mundo sin barreras lingüísticas, impulsado por {engine}.', lang, { engine: <span className="text-w-text font-bold">Gemini AI</span> })}
           </p>
         </div>
 
@@ -43,7 +53,7 @@ export default function Login() {
           className="w-full bg-white text-black py-4 rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-xl hover:bg-gray-100 transition-all flex items-center justify-center gap-4 active:scale-[0.98]"
         >
           <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5 flex-shrink-0" referrerPolicy="no-referrer" />
-          Continuar con Google
+          {t('Continuar con Google', lang)}
         </button>
 
         <div className="mt-12 pt-8 border-t border-white/5 text-center">

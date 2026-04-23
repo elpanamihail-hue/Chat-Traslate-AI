@@ -23,6 +23,8 @@ import { showNotification, showCallNotification, stopVibration } from './lib/not
 import { usePermissions } from './hooks/usePermissions';
 import { updateDoc, deleteDoc } from 'firebase/firestore';
 
+import { t } from './lib/i18n';
+
 export default function App() {
   const [user, loading] = useAuthState(auth);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -35,6 +37,9 @@ export default function App() {
   const [sessionSetupDone, setSessionSetupDone] = useState(false);
 
   const { mic, camera, notifications, requestAll } = usePermissions();
+
+  const lang = profile?.nativeLanguage || 'English';
+
   
   // Listen for Service Worker messages
   useEffect(() => {
@@ -286,7 +291,7 @@ export default function App() {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-w-bg">
         <Loader2 className="w-10 h-10 animate-spin text-w-accent" />
-        <p className="mt-4 text-w-muted font-mono uppercase tracking-widest text-[10px]">Iniciando ChatTranslate...</p>
+        <p className="mt-4 text-w-muted font-mono uppercase tracking-widest text-[10px]">{t('Iniciando ChatTranslate...', lang)}</p>
       </div>
     );
   }
@@ -336,14 +341,14 @@ export default function App() {
               <div className="flex items-center gap-3">
                 <AlertTriangle className="w-5 h-5 text-[#25D366]" />
                 <p className="text-[11px] font-bold uppercase tracking-widest text-[#25D366]">
-                  Acción Requerida: Permisos del Sistema Faltantes
+                  {t('Acción Requerida: Permisos del Sistema Faltantes', lang)}
                 </p>
               </div>
               <button 
                 onClick={() => requestAll()}
                 className="bg-[#25D366] text-w-bg px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-tighter hover:bg-[#25D366]/80 transition-all active:scale-95 shadow-lg shadow-[#25D366]/20"
               >
-                Conceder Permisos
+                {t('Conceder Permisos', lang)}
               </button>
             </div>
           </motion.div>
@@ -416,16 +421,15 @@ export default function App() {
                 </div>
                 <h1 className="text-4xl font-black text-w-text mb-4 tracking-tighter uppercase">ChatTranslate</h1>
                 <p className="text-w-muted max-w-md text-sm leading-relaxed font-medium">
-                  Conéctate sin barreras con traducciones de <span className="text-w-accent font-bold">Gemini AI</span>. 
-                  Envía mensajes y archivos de forma segura con privacidad global.
+                  {t('Conéctate sin barreras con traducciones de {engine}. Envía mensajes y archivos de forma segura con privacidad global.', lang, { engine: <span className="text-w-accent font-bold">Gemini AI</span> })}
                 </p>
                 <div className="mt-16 flex flex-col items-center gap-4">
                   <div className="px-4 py-2 bg-w-header border border-white/10 rounded-full flex items-center gap-3 shadow-xl">
                     <div className="w-2 h-2 rounded-full bg-w-accent animate-pulse shadow-[0_0_8px_#42CBA5]"></div>
-                    <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-w-muted">Motor ChatTranslate Activo</span>
+                    <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-w-muted">{t('Motor ChatTranslate Activo', lang)}</span>
                   </div>
                   <div className="flex items-center gap-2 text-[10px] text-white/20 font-bold uppercase tracking-widest">
-                    <ShieldCheck className="w-3 h-3" /> Cifrado de Extremo a Extremo
+                    <ShieldCheck className="w-3 h-3" /> {t('Cifrado de Extremo a Extremo', lang)}
                   </div>
                 </div>
               </div>
@@ -456,11 +460,12 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {incomingCall && (
+        {incomingCall && profile && (
           <IncomingCall 
             callerName={incomingCall.callerName}
             callerPhoto={incomingCall.callerPhoto}
             type={incomingCall.type}
+            lang={profile.nativeLanguage}
             onAccept={handleAcceptCall}
             onDecline={handleDeclineCall}
           />

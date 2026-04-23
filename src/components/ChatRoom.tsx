@@ -21,6 +21,8 @@ interface Props {
   onCall: (peerId: string, name: string, type: 'video' | 'voice') => void;
 }
 
+import { t } from '../lib/i18n';
+
 export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
@@ -36,6 +38,8 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const otherUser = Object.values(chat.participantProfiles || {}).find(p => p.uid !== profile.uid);
+
+  const lang = profile.nativeLanguage;
 
   useEffect(() => {
     const q = query(
@@ -221,10 +225,10 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
             <ChevronLeft className="w-6 h-6" />
           </button>
           <img src={otherUser?.photoURL} alt={otherUser?.username} className="w-10 h-10 rounded-full border border-white/10 shadow-sm" referrerPolicy="no-referrer" />
-          <div className="flex flex-col">
+            <div className="flex flex-col">
             <span className="font-semibold text-w-text leading-tight">{otherUser?.username}</span>
             <span className="text-[10px] text-w-accent font-bold uppercase tracking-widest">
-              En línea — Traductor Gemini
+              {t('En línea', lang)} — {t('Traductor Gemini', lang)}
             </span>
           </div>
         </div>
@@ -251,7 +255,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
         <div className="mb-8 mx-auto max-w-sm">
           <div className="bg-w-header/30 backdrop-blur-sm border border-w-accent/20 rounded-2xl p-4 text-center">
             <div className="flex items-center justify-center gap-2 mb-2 text-w-accent font-bold text-[10px] tracking-widest">
-              <ShieldCheck className="w-4 h-4" /> AVISO DE SEGURIDAD IA
+              <ShieldCheck className="w-4 h-4" /> {t('AVISO DE SEGURIDAD IA', lang)}
             </div>
             <p className="text-[11px] text-w-muted leading-relaxed">
               Las traducciones son procesadas por <span className="text-w-accent font-semibold text-w-accent">Gemini AI</span>. 
@@ -446,7 +450,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
             ) : (
               <input 
                 type="text" 
-                placeholder={`Escribe tu mensaje en ${profile.nativeLanguage}...`}
+                placeholder={t('Escribe tu mensaje...', lang)}
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 className="flex-1 bg-transparent py-3 text-sm focus:outline-none text-w-text placeholder:text-w-muted"

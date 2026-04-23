@@ -20,6 +20,8 @@ interface Props {
   onClose: () => void;
 }
 
+import { t } from '../lib/i18n';
+
 export default function VideoCall({ profile, remotePeerId, remoteName, callId, isCaller, type = 'video', onClose }: Props) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -32,6 +34,8 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
   const [translatedSubtitles, setTranslatedSubtitles] = useState('');
   const [isTranslating, setIsTranslating] = useState(false);
   const [callStatus, setCallStatus] = useState<'ringing' | 'accepted' | 'declined' | 'ended'>('ringing');
+  
+  const lang = profile.nativeLanguage;
   
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -421,7 +425,7 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
                   <img src={profile.photoURL} alt={remoteName} className="w-40 h-40 rounded-full border-4 border-w-accent shadow-2xl" />
                </div>
                <h2 className="text-3xl font-bold text-white mb-2">{remoteName}</h2>
-               <p className="text-w-accent font-mono tracking-widest uppercase text-xs">Llamada de Voz • Gemini AI</p>
+               <p className="text-w-accent font-mono tracking-widest uppercase text-xs">{t('Llamada de Voz', lang)} • Gemini AI</p>
             </div>
           )}
         </div>
@@ -431,10 +435,10 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
               <PhoneOff className="w-10 h-10 text-gray-500" />
             </div>
             <p className="text-xl font-medium tracking-tight">
-              {callStatus === 'ringing' ? `Llamando a ${remoteName}...` : `Conectando con ${remoteName}...`}
+              {callStatus === 'ringing' ? t('Llamando a...', lang, { name: remoteName }) : `Conectando con ${remoteName}...`}
             </p>
             <p className="text-sm text-gray-500 mt-2 italic font-mono uppercase tracking-widest">
-              {callStatus === 'ringing' ? 'Esperando respuesta...' : 'Sincronizando Traductor IA'}
+              {callStatus === 'ringing' ? t('Esperando respuesta...', lang) : t('Sincronizando Traductor IA', lang)}
             </p>
           </div>
         )}
@@ -450,7 +454,7 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
             )}
             {isScreenSharing && (
               <div className="absolute top-2 left-2 bg-w-accent text-w-bg px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter">
-                Compartiendo
+                {t('Compartiendo', lang)}
               </div>
             )}
           </div>
@@ -467,7 +471,7 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
                 exit={{ opacity: 0 }}
                 className="bg-black/30 backdrop-blur-sm px-4 py-2 rounded-xl border border-white/5 max-w-xl text-center"
               >
-                <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mb-1">Tú</p>
+                <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mb-1">{t('Tú', lang)}</p>
                 <p className="text-white text-sm opacity-80 italic">"{mySubtitles}"</p>
               </motion.div>
             )}
@@ -482,7 +486,7 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
               >
                 <div className="flex items-center gap-2 mb-2 justify-center">
                   <Globe className={cn("w-3 h-3 text-w-accent", isTranslating && "animate-spin")} />
-                  <span className="text-[10px] text-w-accent font-black uppercase tracking-[0.2em]">{remoteName} • Traduciendo</span>
+                  <span className="text-[10px] text-w-accent font-black uppercase tracking-[0.2em]">{remoteName} • {t('Traduciendo', lang)}</span>
                 </div>
 
                 <div className="flex flex-col gap-2">

@@ -6,11 +6,14 @@ interface Props {
   callerName: string;
   callerPhoto: string;
   type: 'video' | 'audio';
+  lang: string;
   onAccept: () => void;
   onDecline: () => void;
 }
 
-export default function IncomingCall({ callerName, callerPhoto, type, onAccept, onDecline }: Props) {
+import { t } from '../lib/i18n';
+
+export default function IncomingCall({ callerName, callerPhoto, type, lang, onAccept, onDecline }: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -63,7 +66,7 @@ export default function IncomingCall({ callerName, callerPhoto, type, onAccept, 
             <h2 className="text-sm font-bold text-white truncate">{callerName}</h2>
             <div className="flex items-center gap-1.5 text-w-accent font-black uppercase tracking-widest text-[8px] whitespace-nowrap">
               <PhoneCall className="w-2.5 h-2.5 animate-bounce" />
-              Llamada de {type === 'video' ? 'Video' : 'Voz'}
+              {t('Llamada de {type}', lang, { type: t(type === 'video' ? 'Video' : 'Voz', lang) })}
             </div>
           </div>
         </div>
@@ -72,7 +75,7 @@ export default function IncomingCall({ callerName, callerPhoto, type, onAccept, 
           <button 
             onClick={onDecline}
             className="w-10 h-10 bg-red-500 hover:bg-red-600 text-white rounded-full shadow-lg shadow-red-900/20 transition-all active:scale-90 flex items-center justify-center p-0"
-            title="Rechazar"
+            title={t('Rechazar', lang)}
           >
             <X className="w-5 h-5" />
           </button>
@@ -80,12 +83,12 @@ export default function IncomingCall({ callerName, callerPhoto, type, onAccept, 
           <button 
             onClick={onAccept}
             className="h-10 px-4 bg-[#25D366] hover:bg-[#1ebe57] text-white rounded-full shadow-lg shadow-green-900/40 transition-all active:scale-95 flex items-center gap-2 group"
-            title="Responder"
+            title={t('Responder', lang)}
           >
             <div className="bg-white/20 p-1 rounded-full group-hover:scale-110 transition-transform">
               {type === 'video' ? <Video className="w-3.5 h-3.5 fill-current" /> : <Phone className="w-3.5 h-3.5 fill-current" />}
             </div>
-            <span className="text-[9px] font-black uppercase tracking-tighter">Responder</span>
+            <span className="text-[9px] font-black uppercase tracking-tighter">{t('Responder', lang)}</span>
           </button>
         </div>
       </motion.div>
