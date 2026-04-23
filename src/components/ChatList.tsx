@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { collection, query, where, orderBy, onSnapshot, getDocs, doc, getDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { UserProfile, Chat } from '../types';
-import { Search, Settings, MoreVertical, MessageSquarePlus, UserPlus, CheckCheck, Share2, ClipboardCheck } from 'lucide-react';
+import { Search, MoreVertical, MessageSquarePlus, UserPlus, CheckCheck, Share2, ClipboardCheck } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface Props {
@@ -131,7 +131,7 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
             <MessageSquarePlus className="w-5 h-5" />
           </button>
           <button onClick={onOpenSettings} className="hover:text-w-accent transition-colors">
-            <Settings className="w-5 h-5" />
+            <MoreVertical className="w-5 h-5" />
           </button>
         </div>
       </div>

@@ -3,7 +3,7 @@ import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { UserProfile } from '../types';
 import { LANGUAGES } from '../languages';
-import { Check, X, LogOut, Globe, User, Shield, Bell, HelpCircle, ChevronLeft, Sun, Moon, Mic, Video, Settings as SettingsIcon } from 'lucide-react';
+import { Check, X, LogOut, Globe, User, Shield, Bell, HelpCircle, ChevronLeft, Sun, Moon, Mic, Video, MoreVertical } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
 import { usePermissions } from '../hooks/usePermissions';
@@ -181,7 +181,7 @@ export default function Settings({ profile, onClose }: Props) {
         {/* System Check Section */}
         <section>
           <h3 className="text-w-accent font-bold text-xs uppercase tracking-[0.2em] mb-8 flex items-center gap-3">
-            <SettingsIcon className="w-4 h-4" /> System Check
+            <MoreVertical className="w-4 h-4" /> System Check
           </h3>
           <div className="bg-w-header/40 p-6 rounded-3xl border border-white/5 backdrop-blur-sm space-y-4">
             <div className="flex items-center justify-between p-4 rounded-2xl bg-w-sidebar/50 border border-white/5">
