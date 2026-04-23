@@ -42,6 +42,21 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["chatId", "senderId", "text", "createdAt"]
+    },
+    "Call": {
+      "title": "Call Signaling",
+      "description": "Metadata for initiating and managing calls",
+      "type": "object",
+      "properties": {
+        "callerId": { "type": "string" },
+        "callerName": { "type": "string" },
+        "callerPhoto": { "type": "string" },
+        "recipientId": { "type": "string" },
+        "type": { "type": "string", "enum": ["audio", "video"] },
+        "status": { "type": "string", "enum": ["ringing", "accepted", "declined", "ended"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["callerId", "recipientId", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -60,6 +75,10 @@
     "/chats/{chatId}/messages/{messageId}": {
       "schema": "Message",
       "description": "Messages belonging to a chat"
+    },
+    "/calls/{callId}": {
+      "schema": "Call",
+      "description": "Call signaling for real-time WebRTC"
     }
   }
 }

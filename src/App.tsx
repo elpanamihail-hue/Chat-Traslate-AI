@@ -15,12 +15,13 @@ import ChatList from './components/ChatList';
 import ChatRoom from './components/ChatRoom';
 import Settings from './components/Settings';
 import VideoCall from './components/VideoCall';
+import IncomingCall from './components/IncomingCall';
 import PWAPrompt from './components/PWAPrompt';
 import { motion, AnimatePresence } from 'motion/react';
 import { Loader2, ShieldCheck, ChevronLeft, AlertTriangle } from 'lucide-react';
 import { showNotification } from './lib/notifications';
 import { usePermissions } from './hooks/usePermissions';
-import { updateDoc } from 'firebase/firestore';
+import { updateDoc, deleteDoc } from 'firebase/firestore';
 
 export default function App() {
   const [user, loading] = useAuthState(auth);
@@ -28,7 +29,8 @@ export default function App() {
   const [fetchingProfile, setFetchingProfile] = useState(true);
   const [activeChat, setActiveChat] = useState<Chat | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [activeCall, setActiveCall] = useState<{peerId: string, remoteName: string} | null>(null);
+  const [activeCall, setActiveCall] = useState<{peerId: string, remoteName: string, callId?: string} | null>(null);
+  const [incomingCall, setIncomingCall] = useState<any>(null);
   const [sessionSetupDone, setSessionSetupDone] = useState(false);
 
   const { mic, camera, notifications, requestAll } = usePermissions();
@@ -168,6 +170,77 @@ export default function App() {
     }
   }, [profile, activeChat]);
 
+  // Incoming Call Listener
+  useEffect(() => {
+    if (profile) {
+      const q = query(
+        collection(db, 'calls'),
+        where('recipientId', '==', profile.uid),
+        where('status', '==', 'ringing')
+      );
+
+      const unsub = onSnapshot(q, (snapshot) => {
+        if (!snapshot.empty) {
+          const callData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+          setIncomingCall(callData);
+          
+          showNotification(
+            `Llamada Entrante`,
+            `${(callData as any).callerName} te está llamando...`
+          );
+        } else {
+          setIncomingCall(null);
+        }
+      });
+      return () => unsub();
+    }
+  }, [profile]);
+
+  const initiateCall = async (recipientId: string, recipientName: string, type: 'video' | 'audio' = 'video') => {
+    if (!profile) return;
+    
+    try {
+      const callRef = await addDoc(collection(db, 'calls'), {
+        callerId: profile.uid,
+        callerName: profile.username,
+        callerPhoto: profile.photoURL || '',
+        recipientId,
+        type,
+        status: 'ringing',
+        createdAt: serverTimestamp()
+      });
+
+      setActiveCall({ peerId: recipientId, remoteName: recipientName, callId: callRef.id, isCaller: true });
+    } catch (err) {
+      console.error("Error initiating call:", err);
+    }
+  };
+
+  const handleAcceptCall = async () => {
+    if (!incomingCall) return;
+    try {
+      await updateDoc(doc(db, 'calls', incomingCall.id), {
+        status: 'accepted'
+      });
+      setActiveCall({ peerId: incomingCall.callerId, remoteName: incomingCall.callerName, callId: incomingCall.id, isCaller: false });
+      setIncomingCall(null);
+    } catch (err) {
+      console.error("Error accepting call:", err);
+    }
+  };
+
+  const handleDeclineCall = async () => {
+    if (!incomingCall) return;
+    try {
+      await updateDoc(doc(db, 'calls', incomingCall.id), {
+        status: 'declined'
+      });
+      setIncomingCall(null);
+    } catch (err) {
+      console.error("Error declining call:", err);
+    }
+  };
+
   if (loading || (user && fetchingProfile)) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-w-bg">
@@ -281,7 +354,7 @@ export default function App() {
                 profile={profile} 
                 chat={activeChat} 
                 onBack={() => setActiveChat(null)}
-                onCall={(peerId, name) => setActiveCall({ peerId, remoteName: name })}
+                onCall={(peerId, name) => initiateCall(peerId, name, 'video')}
               />
             </motion.div>
           ) : (
@@ -326,7 +399,28 @@ export default function App() {
             profile={profile}
             remotePeerId={activeCall.peerId}
             remoteName={activeCall.remoteName}
-            onClose={() => setActiveCall(null)}
+            callId={activeCall.callId}
+            isCaller={(activeCall as any).isCaller}
+            onClose={async () => {
+              if (activeCall.callId) {
+                try {
+                  await updateDoc(doc(db, 'calls', activeCall.callId), { status: 'ended' });
+                } catch (e) {}
+              }
+              setActiveCall(null);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {incomingCall && (
+          <IncomingCall 
+            callerName={incomingCall.callerName}
+            callerPhoto={incomingCall.callerPhoto}
+            type={incomingCall.type}
+            onAccept={handleAcceptCall}
+            onDecline={handleDeclineCall}
           />
         )}
       </AnimatePresence>

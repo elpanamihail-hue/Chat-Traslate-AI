@@ -3,7 +3,7 @@ import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, u
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../lib/firebase';
 import { UserProfile, Chat, Message } from '../types';
-import { translateText, detectLanguage } from '../lib/gemini';
+import { translateText, detectLanguage } from '../services/ai';
 import { 
   Send, Paperclip, Phone, Video, MoreVertical, ChevronLeft, 
   Smile, Mic, FileIcon, ImageIcon, Download, Globe, CheckCheck, Loader2, X, ShieldCheck

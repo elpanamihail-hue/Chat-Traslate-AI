@@ -1,16 +1,19 @@
 import { GoogleGenAI } from "@google/genai";
 
-const apiKey = process.env.GEMINI_API_KEY;
+// Use the Vite environment variable for the API key
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
 
 if (!apiKey) {
-  console.warn("GEMINI_API_KEY is not defined. AI features will not work.");
+  console.warn("VITE_GEMINI_API_KEY is not defined. AI features will fail until configured.");
 }
 
 const ai = new GoogleGenAI({ apiKey: apiKey || "" });
 
+/**
+ * Translates text into the target language using Gemini AI.
+ */
 export async function translateText(text: string, targetLanguage: string): Promise<string> {
-  if (!apiKey) return text;
-  if (!text || !targetLanguage) return text;
+  if (!apiKey || !text || !targetLanguage) return text;
 
   try {
     const response = await ai.models.generateContent({
@@ -19,13 +22,16 @@ export async function translateText(text: string, targetLanguage: string): Promi
     });
     return response.text || text;
   } catch (error) {
-    console.error("Translation error:", error);
+    console.error("Gemini Translation Error:", error);
     return text;
   }
 }
 
+/**
+ * Detects the language of a given text.
+ */
 export async function detectLanguage(text: string): Promise<string> {
-  if (!apiKey) return "English";
+  if (!apiKey || !text) return "English";
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -33,6 +39,7 @@ export async function detectLanguage(text: string): Promise<string> {
     });
     return response.text || "English";
   } catch (error) {
+    console.error("Gemini Detection Error:", error);
     return "English";
   }
 }
