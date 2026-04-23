@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL, updateMetadata } from 'firebase/storage';
 import { db, storage } from '../lib/firebase';
 import { UserProfile, Chat, Message } from '../types';
 import { translateText, detectLanguage } from '../services/ai';
+import { MessageSkeleton } from './ui/Skeleton';
 import { 
   Send, Paperclip, Phone, Video, MoreVertical, ChevronLeft, 
   Smile, Mic, FileIcon, ImageIcon, Download, Globe, CheckCheck, Loader2, X, ShieldCheck
@@ -15,7 +16,7 @@ interface Props {
   profile: UserProfile;
   chat: Chat;
   onBack: () => void;
-  onCall: (peerId: string, name: string) => void;
+  onCall: (peerId: string, name: string, type: 'video' | 'voice') => void;
 }
 
 export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
@@ -23,6 +24,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -53,14 +55,40 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
     if ((!inputText && !file) || sending || !otherUser) return;
 
     setSending(true);
+    setUploadProgress(0);
     try {
       let fileUrl = '';
       let fileName = '';
 
       if (file) {
+        // Original Quality - No compression
+        const isLarge = file.size > 2 * 1024 * 1024; // 2MB
+        
         const fileRef = ref(storage, `chats/${chat.id}/${Date.now()}_${file.name}`);
-        const uploadResult = await uploadBytes(fileRef, file);
-        fileUrl = await getDownloadURL(uploadResult.ref);
+        
+        // Metadata to force download with original name
+        const metadata = {
+          contentDisposition: `attachment; filename="${file.name}"`,
+          customMetadata: {
+            originalName: file.name
+          }
+        };
+
+        const uploadTask = uploadBytesResumable(fileRef, file, metadata);
+
+        fileUrl = await new Promise((resolve, reject) => {
+          uploadTask.on('state_changed', 
+            (snapshot) => {
+              const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+              setUploadProgress(progress);
+            }, 
+            (error) => reject(error), 
+            () => {
+              getDownloadURL(uploadTask.snapshot.ref).then(resolve).catch(reject);
+            }
+          );
+        });
+        
         fileName = file.name;
       }
 
@@ -107,30 +135,13 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
 
       setInputText('');
       setFile(null);
+      setUploadProgress(0);
     } catch (err) {
       console.error(err);
+      setUploadProgress(0);
     } finally {
       setSending(false);
     }
-  };
-
-  const getDisplayMessage = (msg: Message) => {
-    const isMine = msg.senderId === profile.uid;
-    if (isMine) return msg.text;
-
-    // For received messages, check if we have a translation for our current native language
-    const currentLang = profile.nativeLanguage;
-    if (msg.translations?.[currentLang]) {
-      return msg.translations[currentLang];
-    }
-    
-    // If it's the same language, no translation needed
-    if (msg.originalLanguage === currentLang) return msg.text;
-
-    // Translation missing? We can show original but ideally we'd trigger a translation here if needed
-    // The requirement says "messages received after changing lang...". 
-    // Implementing a lazy translation here is best.
-    return msg.text;
   };
 
   return (
@@ -150,10 +161,10 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
           </div>
         </div>
         <div className="flex items-center gap-5 text-w-muted">
-          <button onClick={() => onCall(otherUser?.uid || '', otherUser?.username || '')} className="hover:text-w-accent transition-colors">
+          <button onClick={() => onCall(otherUser?.uid || '', otherUser?.username || '', 'video')} className="hover:text-w-accent transition-colors">
             <Video className="w-5 h-5" />
           </button>
-          <button className="hover:text-w-accent transition-colors">
+          <button onClick={() => onCall(otherUser?.uid || '', otherUser?.username || '', 'voice')} className="hover:text-w-accent transition-colors">
             <Phone className="w-5 h-5" />
           </button>
           <div className="w-[1px] h-6 bg-white/10 mx-1"></div>
@@ -183,12 +194,16 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
 
         {messages.map((msg, idx) => {
           const isMine = msg.senderId === profile.uid;
-          const displayMsg = getDisplayMessage(msg);
-          const needsTranslationMark = !isMine && msg.originalLanguage !== profile.nativeLanguage;
+          const currentLang = profile.nativeLanguage;
+          const translatedText = msg.translations?.[currentLang];
+          const isTranslated = !!translatedText && msg.originalLanguage !== currentLang;
+          
+          if (!msg.createdAt && !isMine) return null; // Wait for server timestamp
+          const isPending = !msg.createdAt;
 
           return (
             <motion.div 
-              key={msg.id}
+              key={msg.id || idx}
               initial={{ opacity: 0, y: 10, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
@@ -203,51 +218,86 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
                   ? "chat-bubble-sent rounded-tr-none" 
                   : "chat-bubble-received rounded-tl-none border border-white/5"
               )}>
-                {/* AI Label for received messages that were translated */}
-                {!isMine && needsTranslationMark && (
-                  <div className="text-[9px] text-w-accent font-mono mb-1 flex items-center gap-1 opacity-80 letter-spacing-1">
-                    <Globe className="w-2.5 h-2.5" /> GEMINI TRANSLATION [{msg.originalLanguage?.toUpperCase()} → {profile.nativeLanguage.toUpperCase()}]
-                  </div>
-                )}
-
-                {/* File handling */}
-                {msg.fileUrl && (
-                  <div className="mb-2 p-2 bg-black/20 rounded-lg flex items-center gap-3 border border-white/5">
-                    {msg.fileName?.match(/\.(jpg|jpeg|png|gif)$/i) ? (
-                      <img src={msg.fileUrl} alt={msg.fileName} className="max-w-full rounded shadow-md" referrerPolicy="no-referrer" />
-                    ) : (
-                      <>
-                        <div className="w-10 h-10 bg-w-accent rounded flex items-center justify-center shadow-inner">
-                          <FileIcon className="w-6 h-6 text-white" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold truncate">{msg.fileName}</p>
-                          <p className="text-[9px] text-white/50 uppercase tracking-widest font-bold">Original File</p>
-                        </div>
-                        <a href={msg.fileUrl} download={msg.fileName} target="_blank" rel="noreferrer" className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                          <Download className="w-4 h-4" />
-                        </a>
-                      </>
+                {isPending ? (
+                  <MessageSkeleton />
+                ) : (
+                  <>
+                    {/* AI Label for received messages that were translated */}
+                    {isTranslated && (
+                      <div className="text-[9px] text-w-accent font-mono mb-1 flex items-center gap-1 opacity-80 letter-spacing-1">
+                        <Globe className="w-2.5 h-2.5" /> GEMINI TRANSLATION [{msg.originalLanguage?.toUpperCase()} → {profile.nativeLanguage.toUpperCase()}]
+                      </div>
                     )}
-                  </div>
-                )}
 
-                {/* Text Content */}
-                {msg.text && (
-                  <div className="text-sm leading-relaxed break-words pr-4 pb-2">
-                    {displayMsg}
-                  </div>
-                )}
+                    {/* File handling */}
+                    {msg.fileUrl && (
+                      <div className="mb-2 p-2 bg-black/20 rounded-lg flex flex-col gap-3 border border-white/5 relative overflow-hidden">
+                        {msg.fileName?.match(/\.(jpg|jpeg|png|gif)$/i) ? (
+                          <div className="relative group/img">
+                            <img src={msg.fileUrl} alt={msg.fileName} className="max-w-full rounded shadow-md cursor-pointer transition-transform hover:scale-[1.02]" referrerPolicy="no-referrer" />
+                            <a 
+                              href={msg.fileUrl} 
+                              download={msg.fileName} 
+                              className="absolute top-2 right-2 bg-black/60 p-2 rounded-full opacity-0 group-hover/img:opacity-100 transition-opacity hover:bg-black"
+                              title="Descargar imagen"
+                            >
+                              <Download className="w-4 h-4 text-white" />
+                            </a>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-3 w-full">
+                            <div className="w-10 h-10 bg-w-accent rounded flex items-center justify-center shadow-inner shrink-0">
+                              <FileIcon className="w-6 h-6 text-white" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-semibold truncate text-white">{msg.fileName}</p>
+                              <p className="text-[9px] text-white/50 uppercase tracking-widest font-bold">Archivo PDF/Documento</p>
+                            </div>
+                            <button 
+                              onClick={() => window.open(msg.fileUrl, '_blank')}
+                              className="p-2 hover:bg-white/10 rounded-full transition-colors shrink-0" 
+                              title="Descargar"
+                            >
+                              <Download className="w-4 h-4 text-white" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                <div className={cn(
-                  "absolute bottom-1 right-2 flex items-center gap-1.5",
-                  isMine ? "text-white/50" : "text-w-muted"
-                )}>
-                  <span className="text-[9px] font-mono">
-                    {msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '...'}
-                  </span>
-                  {isMine && <CheckCheck className="w-3 h-3 text-[#34b7f1]" />}
-                </div>
+                    {/* Text Content */}
+                    {msg.text && (
+                      <div className="flex flex-col gap-2">
+                        {isTranslated ? (
+                          <>
+                            <div className="text-sm leading-relaxed break-words border-b border-white/10 pb-2 mb-1 opacity-60 italic">
+                               <p className="text-[10px] uppercase font-bold tracking-tighter opacity-50 mb-0.5">Original</p>
+                               {msg.text}
+                            </div>
+                            <div className="text-sm leading-relaxed break-words pr-4 pb-2 font-medium">
+                               <p className="text-[10px] uppercase font-bold tracking-tighter text-w-accent mb-0.5">Gemini Traducción</p>
+                               {translatedText}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-sm leading-relaxed break-words pr-4 pb-2">
+                            {msg.text}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <div className={cn(
+                      "absolute bottom-1 right-2 flex items-center gap-1.5",
+                      isMine ? "text-white/50" : "text-w-muted"
+                    )}>
+                      <span className="text-[9px] font-mono">
+                        {msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '...'}
+                      </span>
+                      {isMine && <CheckCheck className="w-3 h-3 text-[#34b7f1]" />}
+                    </div>
+                  </>
+                )}
               </div>
             </motion.div>
           );
@@ -255,7 +305,24 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
       </div>
 
       {/* Input Area */}
-      <div className="bg-w-header p-4 md:p-6 border-t border-white/5">
+      <div className="bg-w-header p-4 md:p-6 border-t border-white/5 relative">
+        {uploadProgress > 0 && uploadProgress < 100 && (
+          <div className="absolute top-0 left-0 w-full z-20">
+            <div className="flex items-center justify-between px-4 py-1.5 bg-w-accent/10 backdrop-blur-md">
+               <span className="text-[9px] font-black uppercase tracking-widest text-w-accent animate-pulse">
+                {file && file.size > 2*1024*1024 ? '🚀 Enviando archivo de alta calidad...' : 'Sincronizando archivo...'}
+               </span>
+               <span className="text-[10px] font-mono text-w-accent font-bold">Subiendo: {Math.round(uploadProgress)}%</span>
+            </div>
+            <div className="w-full h-1 bg-white/5">
+              <motion.div 
+                className="h-full bg-w-accent shadow-[0_0_10px_rgba(66,203,165,0.5)]"
+                initial={{ width: 0 }}
+                animate={{ width: `${uploadProgress}%` }}
+              />
+            </div>
+          </div>
+        )}
         <AnimatePresence>
           {file && (
             <motion.div 

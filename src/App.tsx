@@ -29,7 +29,7 @@ export default function App() {
   const [fetchingProfile, setFetchingProfile] = useState(true);
   const [activeChat, setActiveChat] = useState<Chat | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [activeCall, setActiveCall] = useState<{peerId: string, remoteName: string, callId?: string} | null>(null);
+  const [activeCall, setActiveCall] = useState<{peerId: string, remoteName: string, callId?: string, type?: 'video' | 'voice', isCaller?: boolean} | null>(null);
   const [incomingCall, setIncomingCall] = useState<any>(null);
   const [sessionSetupDone, setSessionSetupDone] = useState(false);
 
@@ -196,7 +196,7 @@ export default function App() {
     }
   }, [profile]);
 
-  const initiateCall = async (recipientId: string, recipientName: string, type: 'video' | 'audio' = 'video') => {
+  const initiateCall = async (recipientId: string, recipientName: string, type: 'video' | 'voice' = 'video') => {
     if (!profile) return;
     
     try {
@@ -210,7 +210,7 @@ export default function App() {
         createdAt: serverTimestamp()
       });
 
-      setActiveCall({ peerId: recipientId, remoteName: recipientName, callId: callRef.id, isCaller: true });
+      setActiveCall({ peerId: recipientId, remoteName: recipientName, callId: callRef.id, isCaller: true, type });
     } catch (err) {
       console.error("Error initiating call:", err);
     }
@@ -222,7 +222,13 @@ export default function App() {
       await updateDoc(doc(db, 'calls', incomingCall.id), {
         status: 'accepted'
       });
-      setActiveCall({ peerId: incomingCall.callerId, remoteName: incomingCall.callerName, callId: incomingCall.id, isCaller: false });
+      setActiveCall({ 
+        peerId: incomingCall.callerId, 
+        remoteName: incomingCall.callerName, 
+        callId: incomingCall.id, 
+        isCaller: false, 
+        type: incomingCall.type 
+      });
       setIncomingCall(null);
     } catch (err) {
       console.error("Error accepting call:", err);
@@ -354,7 +360,7 @@ export default function App() {
                 profile={profile} 
                 chat={activeChat} 
                 onBack={() => setActiveChat(null)}
-                onCall={(peerId, name) => initiateCall(peerId, name, 'video')}
+                onCall={(peerId, name, type) => initiateCall(peerId, name, type)}
               />
             </motion.div>
           ) : (
@@ -400,7 +406,8 @@ export default function App() {
             remotePeerId={activeCall.peerId}
             remoteName={activeCall.remoteName}
             callId={activeCall.callId}
-            isCaller={(activeCall as any).isCaller}
+            isCaller={activeCall.isCaller}
+            type={activeCall.type}
             onClose={async () => {
               if (activeCall.callId) {
                 try {
