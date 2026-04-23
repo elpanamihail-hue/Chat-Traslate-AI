@@ -19,7 +19,7 @@ import IncomingCall from './components/IncomingCall';
 import PWAPrompt from './components/PWAPrompt';
 import { motion, AnimatePresence } from 'motion/react';
 import { Loader2, ShieldCheck, ChevronLeft, AlertTriangle } from 'lucide-react';
-import { showNotification } from './lib/notifications';
+import { showNotification, showCallNotification, stopVibration } from './lib/notifications';
 import { usePermissions } from './hooks/usePermissions';
 import { updateDoc, deleteDoc } from 'firebase/firestore';
 
@@ -35,6 +35,23 @@ export default function App() {
   const [sessionSetupDone, setSessionSetupDone] = useState(false);
 
   const { mic, camera, notifications, requestAll } = usePermissions();
+  
+  // Listen for Service Worker messages
+  useEffect(() => {
+    const handleSWMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'CALL_ACTION') {
+        if (event.data.action === 'accept') {
+          handleAcceptCall();
+        } else if (event.data.action === 'decline') {
+          handleDeclineCall();
+        }
+      }
+    };
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleSWMessage);
+      return () => navigator.serviceWorker.removeEventListener('message', handleSWMessage);
+    }
+  }, [incomingCall]);
 
   // Variants for WhatsApp-style sliding
   const slideVariants = {
@@ -151,17 +168,21 @@ export default function App() {
         snapshot.docChanges().forEach((change) => {
           if (change.type === 'modified') {
             const chatData = { id: change.doc.id, ...change.doc.data() } as Chat;
+            const lastUpdated = chatData.updatedAt?.toDate?.()?.getTime() || 0;
             
             if (
               chatData.lastMessageSenderId && 
               chatData.lastMessageSenderId !== profile.uid &&
-              activeChat?.id !== chatData.id
+              activeChat?.id !== chatData.id &&
+              lastUpdated > sessionStartTime // Only notify for new messages in this session
             ) {
               const otherUserProfile = Object.values(chatData.participantProfiles || {}).find(p => (p as UserProfile).uid !== profile.uid) as UserProfile | undefined;
               
               showNotification(
                 `Mensaje de ${otherUserProfile?.username || 'ChatTranslate'}`,
-                chatData.lastMessage || 'Has recibido un nuevo mensaje'
+                chatData.lastMessage || 'Has recibido un nuevo mensaje',
+                profile.nativeLanguage,
+                otherUserProfile?.photoURL
               );
             }
           }
@@ -169,7 +190,7 @@ export default function App() {
       });
       return () => unsub();
     }
-  }, [profile, activeChat]);
+  }, [profile, activeChat, sessionStartTime]);
 
   // Incoming Call Listener
   useEffect(() => {
@@ -187,20 +208,26 @@ export default function App() {
 
       const unsub = onSnapshot(q, (snapshot) => {
         if (!snapshot.empty) {
-          const callData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+          const callData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as any;
           setIncomingCall(callData);
           
-          showNotification(
-            `Llamada Entrante`,
-            `${(callData as any).callerName} te está llamando...`
+          showCallNotification(
+            callData.callerName,
+            callData.id,
+            callData.type,
+            callData.callerPhoto
           );
         } else {
           setIncomingCall(null);
+          stopVibration();
         }
       }, (err) => {
         console.error("Call listener error:", err);
       });
-      return () => unsub();
+      return () => {
+        unsub();
+        stopVibration();
+      };
     }
   }, [profile]);
 

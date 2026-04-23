@@ -1,59 +1,73 @@
-// Service Worker for Background Notifications
-self.addEventListener('push', function(event) {
-  let payload = {
-    title: 'ChatTranslate',
-    body: 'Tienes un nuevo mensaje',
-    url: '/'
-  };
+/**
+ * Service Worker for ChatTranslate
+ */
 
-  if (event.data) {
-    try {
-      const data = event.data.json();
-      // Handle FCM format
-      if (data.notification) {
-        payload.title = data.notification.title || payload.title;
-        payload.body = data.notification.body || payload.body;
-      } else {
-        payload = { ...payload, ...data };
-      }
-      if (data.data && data.data.url) payload.url = data.data.url;
-    } catch (e) {
-      payload.body = event.data.text();
-    }
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
+// Handle notification clicks
+self.addEventListener('notificationclick', (event) => {
+  const notification = event.notification;
+  const action = event.action;
+
+  notification.close();
+
+  if (action === 'accept-call') {
+     event.waitUntil(
+       self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+         for (const client of clientList) {
+           if ('focus' in client) {
+             client.postMessage({ type: 'CALL_ACTION', action: 'accept', callId: notification.data?.callId });
+             return client.focus();
+           }
+         }
+         return self.clients.openWindow('/?action=accept-call&callId=' + (notification.data?.callId || ''));
+       })
+     );
+     return;
   }
 
-  const options = {
-    body: payload.body,
-    icon: 'https://picsum.photos/seed/vibe_notif/192/192',
-    badge: 'https://picsum.photos/seed/vibe_badge/96/96',
-    data: {
-      url: payload.url
-    },
-    tag: 'vibe-coding-message',
-    renotify: true,
-    vibrate: [200, 100, 200]
-  };
+  if (action === 'decline-call') {
+    event.waitUntil(
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+        for (const client of clientList) {
+          if ('focus' in client) {
+            client.postMessage({ type: 'CALL_ACTION', action: 'decline', callId: notification.data?.callId });
+            return;
+          }
+        }
+      })
+    );
+    return;
+  }
 
+  // Default: focus/open app
   event.waitUntil(
-    self.registration.showNotification(payload.title, options)
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) return client.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow('/');
+    })
   );
 });
 
-self.addEventListener('notificationclick', function(event) {
-  event.notification.close();
-  const urlToOpen = event.notification.data.url || '/';
-  
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
-      for (let i = 0; i < windowClients.length; i++) {
-        const client = windowClients[i];
-        if (client.url === urlToOpen && 'focus' in client) {
-          return client.focus();
-        }
-      }
-      if (clients.openWindow) {
-        return clients.openWindow(urlToOpen);
-      }
-    })
-  );
+// For future FCM integration
+self.addEventListener('push', (event) => {
+  if (event.data) {
+    const data = event.data.json();
+    const options = {
+      body: data.body,
+      icon: data.icon || '/icon-192.png',
+      badge: '/icon-192.png',
+      data: data.data,
+      actions: data.actions || []
+    };
+    event.waitUntil(self.registration.showNotification(data.title, options));
+  }
 });

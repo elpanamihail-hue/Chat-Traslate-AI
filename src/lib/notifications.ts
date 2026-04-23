@@ -1,10 +1,11 @@
 import { getToken } from 'firebase/messaging';
 import { messaging, db } from './firebase';
 import { doc, updateDoc } from 'firebase/firestore';
+import { translateText } from '../services/ai';
 
 export const requestNotificationPermission = async (userUid?: string) => {
   if (!('Notification' in window)) {
-    console.log('Este navegador no soporta notificaciones de escritorio');
+    console.warn('Este navegador no soporta notificaciones de escritorio');
     return false;
   }
 
@@ -23,6 +24,7 @@ const registerServiceWorker = async () => {
   if ('serviceWorker' in navigator) {
     try {
       const registration = await navigator.serviceWorker.register('/sw.js');
+      console.log('Service Worker registrado correctamente');
       return registration;
     } catch (err) {
       console.error('Error al registrar Service Worker:', err);
@@ -35,38 +37,95 @@ const setupFCM = async (uid: string) => {
     const fcm = await messaging();
     if (!fcm) return;
 
-    // Use default VAPID key if provided in env, else it might fail but the logic is there
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration) return;
+
     const token = await getToken(fcm, {
-      serviceWorkerRegistration: await navigator.serviceWorker.getRegistration()
+      serviceWorkerRegistration: registration,
+      vapidKey: import.meta.env.VITE_FCM_VAPID_KEY
     });
 
     if (token) {
-      console.log('FCM Token obtenido:', token);
-      await updateDoc(doc(db, 'users', uid), {
-        fcmToken: token
-      });
+      await updateDoc(doc(db, 'users', uid), { fcmToken: token });
     }
   } catch (err) {
     console.warn('Error al configurar FCM:', err);
   }
 };
 
-export const showNotification = (title: string, body: string, icon?: string) => {
-  if (Notification.permission === 'granted' && document.visibilityState !== 'visible') {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.ready.then(registration => {
-        registration.showNotification(title, {
-          body,
-          icon: icon || 'https://picsum.photos/seed/vibe_notif/192/192',
-          tag: 'vibe-coding-message',
-          renotify: true
-        } as any);
-      });
-    } else {
-      new Notification(title, {
-        body,
-        icon: icon || '/favicon.ico',
-      });
+/**
+ * Shows a standard message notification with automatic translation if needed.
+ */
+export const showNotification = async (title: string, body: string, targetLanguage?: string, icon?: string) => {
+  if (Notification.permission !== 'granted') return;
+
+  let textToShow = body;
+  if (targetLanguage) {
+    try {
+      textToShow = await translateText(body, targetLanguage);
+    } catch (e) {
+      console.error("Translation fail in notification:", e);
     }
+  }
+
+  const options: any = {
+    body: textToShow,
+    icon: icon || '/icon-192.png',
+    badge: '/icon-192.png',
+    tag: 'chat-message',
+    renotify: true,
+    vibrate: [200, 100, 200]
+  };
+
+  if (document.visibilityState !== 'visible') {
+    if ('serviceWorker' in navigator) {
+      const registration = await navigator.serviceWorker.ready;
+      registration.showNotification(title, options);
+    } else {
+      new Notification(title, options);
+    }
+  }
+};
+
+/**
+ * Shows a high-priority call notification with action buttons and persistent vibration.
+ */
+export const showCallNotification = async (callerName: string, callId: string, type: 'video' | 'voice' = 'video', icon?: string) => {
+  if (Notification.permission !== 'granted') return;
+
+  const title = `Llamada de ${type === 'video' ? 'Video' : 'Voz'} Entrante`;
+  const body = `${callerName} te está llamando...`;
+
+  const options: any = {
+    body,
+    icon: icon || '/icon-192.png',
+    badge: '/icon-192.png',
+    tag: 'incoming-call',
+    renotify: true,
+    requireInteraction: true, // Keep notification visible until user interacts
+    silent: false,
+    data: { callId },
+    actions: [
+      { action: 'accept-call', title: '✅ Aceptar' },
+      { action: 'decline-call', title: '❌ Rechazar' }
+    ]
+  };
+
+  // Vibrate pattern for calls: long-short-long
+  if (navigator.vibrate) {
+    navigator.vibrate([500, 200, 500, 200, 500]);
+  }
+
+  if ('serviceWorker' in navigator) {
+    const registration = await navigator.serviceWorker.ready;
+    registration.showNotification(title, options);
+  } else {
+    new Notification(title, options);
+  }
+};
+
+export const stopVibration = () => {
+  if (navigator.vibrate) {
+    navigator.vibrate(0);
   }
 };
