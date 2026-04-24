@@ -25,10 +25,16 @@ export interface Chat {
   createdBy?: string;
 }
 
+export interface Member {
+  group_id: string;
+  user_id: string;
+  joined_at: string;
+}
+
 export interface Message {
   id: string;
-  chatId: string;
-  senderId: string;
+  group_id: string;
+  user_id: string;
   text: string;
   originalLanguage?: string;
   translations?: { [lang: string]: string };

@@ -47,15 +47,38 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
   useEffect(() => {
     const fetchChats = async () => {
       const { data, error } = await supabase
-        .from('chats')
-        .select('*')
-        .contains('participants', [profile.uid])
+        .from('groups')
+        .select(`
+          *,
+          members!inner(user_id)
+        `)
+        .eq('members.user_id', profile.uid)
         .order('updated_at', { ascending: false });
 
       if (!error && data) {
-        const enrichedChats = await Promise.all(data.map(async (chat) => {
+        const enrichedChats = await Promise.all(data.map(async (group: any) => {
+          // Fetch all members for this group/chat
+          const { data: memberData } = await supabase
+            .from('members')
+            .select('user_id')
+            .eq('group_id', group.id);
+          
+          const participants = memberData?.map(m => m.user_id) || [];
+          
+          const chat: Chat = {
+            id: group.id,
+            participants,
+            lastMessage: group.last_message,
+            lastMessageSenderId: group.last_message_sender_id,
+            updated_at: group.updated_at,
+            isGroup: group.is_group,
+            groupName: group.name,
+            groupPhoto: group.photo_url,
+            createdBy: group.created_by
+          };
+
           if (!chat.participantProfiles && !chat.isGroup) {
-            const otherId = chat.participants.find((p: string) => p !== profile.uid);
+            const otherId = participants.find((p: string) => p !== profile.uid);
             if (otherId) {
               let otherProfile = await localDb.profiles.get(otherId);
               if (!otherProfile) {
@@ -85,20 +108,50 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
 
     fetchChats();
 
-    // Real-time subscription for chat updates
+    // Real-time subscription for group updates
     const channel = supabase
-      .channel('chat-updates')
+      .channel('group-updates')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'chats' },
-        (payload) => {
-          const newChat = payload.new as Chat;
-          if (newChat.participants && newChat.participants.includes(profile.uid)) {
+        { event: '*', schema: 'public', table: 'groups' },
+        async (payload) => {
+          const newGroup = payload.new as any;
+          if (!newGroup || !newGroup.id) return;
+
+          // Check if user is a member
+          const { data: member } = await supabase
+            .from('members')
+            .select('*')
+            .eq('group_id', newGroup.id)
+            .eq('user_id', profile.uid)
+            .single();
+
+          if (member) {
+            // Fetch all members to update participants array
+            const { data: allMembers } = await supabase
+              .from('members')
+              .select('user_id')
+              .eq('group_id', newGroup.id);
+            
+            const participants = allMembers?.map(m => m.user_id) || [];
+
+            const chat: Chat = {
+              id: newGroup.id,
+              participants,
+              lastMessage: newGroup.last_message,
+              lastMessageSenderId: newGroup.last_message_sender_id,
+              updated_at: newGroup.updated_at,
+              isGroup: newGroup.is_group,
+              groupName: newGroup.name,
+              groupPhoto: newGroup.photo_url,
+              createdBy: newGroup.created_by
+            };
+
             setChats(prev => {
-              const filtered = prev.filter(c => c.id !== newChat.id);
-              return [newChat, ...filtered];
+              const filtered = prev.filter(c => c.id !== chat.id);
+              return [chat, ...filtered];
             });
-            localDb.chats.put(newChat);
+            localDb.chats.put(chat);
           }
         }
       )
@@ -138,23 +191,30 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
     }
 
     const { data, error } = await supabase
-      .from('chats')
+      .from('groups')
       .insert({
-        participants: [profile.uid, otherUser.uid],
-        participantProfiles: {
-          [profile.uid]: profile,
-          [otherUser.uid]: otherUser
-        },
         updated_at: new Date().toISOString(),
-        lastMessage: '',
-        isGroup: false
+        last_message: '',
+        is_group: false,
+        name: otherUser.username,
+        photo_url: otherUser.photoURL
       })
       .select()
       .single();
 
     if (!error && data) {
-      const enrichedChat = {
-        ...data,
+      // Insert members for the 1:1 chat
+      await supabase.from('members').insert([
+        { group_id: data.id, user_id: profile.uid },
+        { group_id: data.id, user_id: otherUser.uid }
+      ]);
+
+      const enrichedChat: Chat = {
+        id: data.id,
+        participants: [profile.uid, otherUser.uid],
+        updated_at: data.updated_at,
+        lastMessage: '',
+        isGroup: false,
         participantProfiles: {
           [profile.uid]: profile,
           [otherUser.uid]: otherUser

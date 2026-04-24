@@ -65,21 +65,27 @@ export default function CreateGroupModal({ profile, lang, onClose, onGroupCreate
       };
 
       const { data, error } = await supabase
-        .from('chats')
+        .from('groups')
         .insert({
-          participants,
-          participantProfiles,
-          isGroup: true,
-          groupName: groupName.trim(),
-          createdBy: profile.uid,
+          name: groupName.trim(),
+          is_group: true,
+          created_by: profile.uid,
           updated_at: new Date().toISOString(),
-          lastMessage: '',
-          groupPhoto: `https://ui-avatars.com/api/?name=${encodeURIComponent(groupName)}&background=25D366&color=fff`
+          last_message: '',
+          photo_url: `https://ui-avatars.com/api/?name=${encodeURIComponent(groupName)}&background=25D366&color=fff`
         })
         .select()
         .single();
 
       if (!error && data) {
+        // Insert members into the members table
+        const memberInserts = participants.map(uid => ({
+          group_id: data.id,
+          user_id: uid
+        }));
+        
+        await supabase.from('members').insert(memberInserts);
+        
         onGroupCreated(data.id);
       }
     } catch (error) {

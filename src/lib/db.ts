@@ -2,14 +2,14 @@ import Dexie, { Table } from 'dexie';
 import { Message, UserProfile, Chat } from '../types';
 
 export class LocalDatabase extends Dexie {
-  messages!: Table<Message & { chatId: string }>;
+  messages!: Table<Message>;
   chats!: Table<Chat>;
   profiles!: Table<UserProfile>;
 
   constructor() {
     super('ChatAppLocalDB');
     this.version(1).stores({
-      messages: 'id, chatId, created_at, senderId',
+      messages: 'id, group_id, created_at, user_id',
       chats: 'id, updated_at',
       profiles: 'uid, username'
     });

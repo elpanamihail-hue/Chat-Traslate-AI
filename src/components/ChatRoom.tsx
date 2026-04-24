@@ -26,7 +26,7 @@ interface Props {
 export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
   // Use LiveQuery to automatically update when localDb changes
   const localMessages = useLiveQuery(
-    () => localDb.messages.where('chatId').equals(chat.id).sortBy('created_at'),
+    () => localDb.messages.where('group_id').equals(chat.id).sortBy('created_at'),
     [chat.id]
   );
   
@@ -90,7 +90,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
       const { data: newMsgs, error } = await supabase
         .from('messages')
         .select('*')
-        .eq('chatId', chat.id)
+        .eq('group_id', chat.id)
         .gt('created_at', lastTimestamp)
         .order('created_at', { ascending: true });
 
@@ -109,7 +109,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
           
           // Automatic Translation & Storage Logic
           // We save translations to DB so other devices read them directly
-          if (message.senderId !== profile.uid && message.text && !message.translations?.[profile.nativeLanguage]) {
+          if (message.user_id !== profile.uid && message.text && !message.translations?.[profile.nativeLanguage]) {
             if (message.originalLanguage && message.originalLanguage !== profile.nativeLanguage) {
                try {
                  const translated = await translateText(message.text, profile.nativeLanguage);
@@ -136,7 +136,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
         .channel(`chat-room-${chat.id}`)
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'messages', filter: `chatId=eq.${chat.id}` },
+          { event: '*', schema: 'public', table: 'messages', filter: `group_id=eq.${chat.id}` },
           async (payload) => {
             const rawMsg = payload.new as any;
             if (!rawMsg || !rawMsg.id) return;
@@ -152,7 +152,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
               // Avoid re-rendering/re-processing if it already exists and hasn't changed significantly
               if (payload.eventType === 'INSERT' && existing) return;
               
-              await localDb.messages.put({ ...message, chatId: chat.id });
+              await localDb.messages.put({ ...message, group_id: chat.id });
             }
           }
         )
@@ -233,8 +233,8 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
       const { error: msgError } = await supabase
         .from('messages')
         .insert({
-          chatId: chat.id,
-          senderId: profile.uid,
+          group_id: chat.id,
+          user_id: profile.uid,
           text: textToSend,
           originalLanguage: detectedLang || profile.nativeLanguage,
           translations: translations,
@@ -248,10 +248,10 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
       if (msgError) throw msgError;
 
       await supabase
-        .from('chats')
+        .from('groups')
         .update({
-          lastMessage: textToSend || (audioUrl ? '🎤 Audio' : `Archivo: ${fileName}`),
-          lastMessageSenderId: profile.uid,
+          last_message: textToSend || (audioUrl ? '🎤 Audio' : `Archivo: ${fileName}`),
+          last_message_sender_id: profile.uid,
           updated_at: new Date().toISOString()
         })
         .eq('id', chat.id);
@@ -370,7 +370,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
         </div>
 
         {messages.map((msg, idx) => {
-          const isMine = msg.senderId === profile.uid;
+          const isMine = msg.user_id === profile.uid;
           const currentLang = profile.nativeLanguage;
           const translatedText = msg.translations?.[currentLang];
           const isTranslated = !!translatedText && msg.originalLanguage !== currentLang;
@@ -389,9 +389,9 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
                 isMine ? "items-end" : "items-start"
               )}
             >
-              {chat.isGroup && !isMine && msg.senderId && (
+              {chat.isGroup && !isMine && msg.user_id && (
                 <span className="text-[10px] font-bold text-w-muted mb-1 ml-1 uppercase tracking-widest">
-                  {chat.participantProfiles?.[msg.senderId]?.username || 'User'}
+                  {chat.participantProfiles?.[msg.user_id]?.username || 'User'}
                 </span>
               )}
               <div className={cn(
