@@ -169,28 +169,15 @@ export default function App() {
 
     const handleInvite = async () => {
       try {
-        const { data: memberData, error: memberError } = await supabase
-          .from('members')
-          .select('group_id')
-          .eq('user_id', profile.uid);
-
-        if (memberError || !memberData) throw memberError;
-
-        const groupIds = memberData.map(m => m.group_id);
-        
-        // Find if any chat has the inviteUid as a member
         const { data: existingChats, error: chatsError } = await supabase
           .from('chats')
-          .select(`
-            *,
-            members(user_id)
-          `)
-          .in('id', groupIds);
+          .select('*')
+          .contains('participants', [profile.uid]);
 
         if (chatsError) throw chatsError;
 
         const existingChat = existingChats?.find(g => 
-          g.members.some((m: any) => m.user_id === inviteUid)
+          (g.participants as string[] || []).includes(inviteUid)
         );
 
         if (existingChat) {
@@ -229,17 +216,13 @@ export default function App() {
               .from('chats')
               .insert({
                 created_at: new Date().toISOString(),
-                name: otherUser.username
+                name: otherUser.username,
+                participants: [profile.uid, inviteUid]
               })
               .select()
               .single();
 
             if (!createError && newChat) {
-              await supabase.from('members').insert([
-                { group_id: newChat.id, user_id: profile.uid },
-                { group_id: newChat.id, user_id: inviteUid }
-              ]);
-
               setActiveChat({
                 id: newChat.id,
                 participants: [profile.uid, inviteUid],
@@ -348,17 +331,9 @@ export default function App() {
             const chatData = payload.new as any;
             
             // Check membership
-            const { data: member } = await supabase
-              .from('members')
-              .select('*')
-              .eq('group_id', chatData.id)
-              .eq('user_id', profileUid)
-              .single();
+            if (!chatData.participants?.includes(profileUid)) return;
 
-            if (!member) return;
-
-            // Minimal schema doesn't have last_message_sender_id, so we skip notifications here
-            // unless we fetch the latest message from messages table.
+            // Minimal logic for now as requested
           }
         )
         .subscribe();

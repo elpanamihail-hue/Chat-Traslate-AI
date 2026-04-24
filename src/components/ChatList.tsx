@@ -48,33 +48,24 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
     const fetchChats = async () => {
       const { data, error } = await supabase
         .from('chats')
-        .select(`
-          *,
-          members!inner(user_id)
-        `)
-        .eq('members.user_id', profile.uid)
+        .select('*')
+        .contains('participants', [profile.uid])
         .order('created_at', { ascending: false });
 
       if (!error && data) {
         const enrichedChats = await Promise.all(data.map(async (chatData: any) => {
-          // Fetch all members for this chat
-          const { data: memberData } = await supabase
-            .from('members')
-            .select('user_id')
-            .eq('group_id', chatData.id);
-          
-          const participants = memberData?.map(m => m.user_id) || [];
+          const participants = chatData.participants || [];
           
           const chat: Chat = {
             id: chatData.id,
             participants,
-            lastMessage: '', // Minimal schema
-            lastMessageSenderId: '',
+            lastMessage: chatData.last_message || '',
+            lastMessageSenderId: chatData.last_message_sender_id || '',
             updated_at: chatData.created_at,
-            isGroup: true, // We assume it's a group if it's in this list for now
+            isGroup: chatData.is_group ?? true,
             groupName: chatData.name,
-            groupPhoto: `https://ui-avatars.com/api/?name=${encodeURIComponent(chatData.name)}`,
-            createdBy: ''
+            groupPhoto: chatData.photo_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(chatData.name)}`,
+            createdBy: chatData.created_by || ''
           };
 
           if (!chat.participantProfiles && !chat.isGroup) {
@@ -118,33 +109,18 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
           const newChatData = payload.new as any;
           if (!newChatData || !newChatData.id) return;
 
-          // Check if user is a member
-          const { data: member } = await supabase
-            .from('members')
-            .select('*')
-            .eq('group_id', newGroup.id)
-            .eq('user_id', profile.uid)
-            .single();
-
-          if (member) {
-            // Fetch all members to update participants array
-            const { data: allMembers } = await supabase
-              .from('members')
-              .select('user_id')
-              .eq('group_id', newGroup.id);
-            
-            const participants = allMembers?.map(m => m.user_id) || [];
-
+          // Check if user is a participant
+          if (newChatData.participants && newChatData.participants.includes(profile.uid)) {
             const chat: Chat = {
               id: newChatData.id,
-              participants,
-              lastMessage: '',
-              lastMessageSenderId: '',
+              participants: newChatData.participants,
+              lastMessage: newChatData.last_message || '',
+              lastMessageSenderId: newChatData.last_message_sender_id || '',
               updated_at: newChatData.created_at,
-              isGroup: true,
+              isGroup: newChatData.is_group ?? true,
               groupName: newChatData.name,
-              groupPhoto: `https://ui-avatars.com/api/?name=${encodeURIComponent(newChatData.name)}`,
-              createdBy: ''
+              groupPhoto: newChatData.photo_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(newChatData.name)}`,
+              createdBy: newChatData.created_by || ''
             };
 
             setChats(prev => {
