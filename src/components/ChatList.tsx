@@ -56,24 +56,24 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
         .order('created_at', { ascending: false });
 
       if (!error && data) {
-        const enrichedChats = await Promise.all(data.map(async (group: any) => {
-          // Fetch all members for this group/chat
+        const enrichedChats = await Promise.all(data.map(async (chatData: any) => {
+          // Fetch all members for this chat
           const { data: memberData } = await supabase
             .from('members')
             .select('user_id')
-            .eq('group_id', group.id);
+            .eq('group_id', chatData.id);
           
           const participants = memberData?.map(m => m.user_id) || [];
           
           const chat: Chat = {
-            id: group.id,
+            id: chatData.id,
             participants,
             lastMessage: '', // Minimal schema
             lastMessageSenderId: '',
-            updated_at: group.created_at,
+            updated_at: chatData.created_at,
             isGroup: true, // We assume it's a group if it's in this list for now
-            groupName: group.name,
-            groupPhoto: `https://ui-avatars.com/api/?name=${encodeURIComponent(group.name)}`,
+            groupName: chatData.name,
+            groupPhoto: `https://ui-avatars.com/api/?name=${encodeURIComponent(chatData.name)}`,
             createdBy: ''
           };
 

@@ -178,8 +178,8 @@ export default function App() {
 
         const groupIds = memberData.map(m => m.group_id);
         
-        // Find if any group has the inviteUid as a member
-        const { data: existingGroups, error: groupsError } = await supabase
+        // Find if any chat has the inviteUid as a member
+        const { data: existingChats, error: chatsError } = await supabase
           .from('chats')
           .select(`
             *,
@@ -187,22 +187,22 @@ export default function App() {
           `)
           .in('id', groupIds);
 
-        if (groupsError) throw groupsError;
+        if (chatsError) throw chatsError;
 
-        const existingGroup = existingGroups?.find(g => 
+        const existingChat = existingChats?.find(g => 
           g.members.some((m: any) => m.user_id === inviteUid)
         );
 
-        if (existingGroup) {
+        if (existingChat) {
           const chatData: Chat = {
-            id: existingGroup.id,
+            id: existingChat.id,
             participants: [profile.uid, inviteUid],
             lastMessage: '',
             lastMessageSenderId: '',
-            updated_at: existingGroup.created_at,
+            updated_at: existingChat.created_at,
             isGroup: false,
-            groupName: existingGroup.name,
-            groupPhoto: `https://ui-avatars.com/api/?name=${encodeURIComponent(existingGroup.name)}`
+            groupName: existingChat.name,
+            groupPhoto: `https://ui-avatars.com/api/?name=${encodeURIComponent(existingChat.name)}`
           };
           const { data: otherProfile, error: profileError } = await supabase
             .from('users')
