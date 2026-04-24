@@ -5,7 +5,7 @@ import { UserProfile } from '../types';
 import { translateText } from '../services/ai';
 import { 
   X, Mic, MicOff, Video, VideoOff, PhoneOff, Globe, 
-  Monitor, MonitorOff, Camera, RefreshCw, Volume2, VolumeX, Maximize2 
+  Monitor, MonitorOff, Camera, RefreshCw, Volume2, VolumeX, Maximize2, Minimize2 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -33,10 +33,12 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
   const [remoteSubtitles, setRemoteSubtitles] = useState('');
   const [translatedSubtitles, setTranslatedSubtitles] = useState('');
   const [isTranslating, setIsTranslating] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [callStatus, setCallStatus] = useState<'ringing' | 'accepted' | 'declined' | 'ended'>('ringing');
   
   const lang = profile.nativeLanguage;
   
+  const containerRef = useRef<HTMLDivElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -71,9 +73,15 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
           const status = docSnap.data().status;
           setCallStatus(status);
           if (status === 'declined' || status === 'ended') {
+            if (document.fullscreenElement) {
+              document.exitFullscreen().catch(() => {});
+            }
             onClose();
           }
         } else {
+          if (document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+          }
           onClose(); // Doc deleted
         }
       });
@@ -215,6 +223,16 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
       }
       if (subtitleTimeoutRef.current) clearTimeout(subtitleTimeoutRef.current);
     };
+  }, []);
+
+  // Fullscreen event listener
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
 
   const handleScreenShare = async () => {
@@ -397,6 +415,20 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
     }
   };
 
+  const toggleFullscreen = async () => {
+    if (!containerRef.current) return;
+
+    try {
+      if (!document.fullscreenElement) {
+        await containerRef.current.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch (err) {
+      console.error("Error toggling fullscreen:", err);
+    }
+  };
+
   const endCall = () => {
     stopAllTracks(localStream);
     if (callId) {
@@ -407,12 +439,16 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
 
   return (
     <motion.div 
+      ref={containerRef}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center p-4 md:p-8"
+      className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center p-0 md:p-8"
     >
-      <div className="relative w-full h-full max-w-6xl aspect-video bg-gray-900 md:rounded-3xl overflow-hidden shadow-2xl border-white/10 flex flex-col md:block">
+      <div className={cn(
+        "relative w-full h-full bg-gray-900 overflow-hidden shadow-2xl border-white/10 flex flex-col",
+        isFullscreen ? "p-0 rounded-none border-none" : "max-w-6xl aspect-video md:rounded-3xl"
+      )}>
         
         {/* Remote Video (Main) / Voice Call Avatar */}
         <div className="flex-1 md:absolute md:inset-0">
@@ -505,43 +541,68 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
         </div>
 
         {/* Bottom Controls Panel */}
-        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-8 flex flex-col items-center gap-6 z-40">
-          
-          {callStatus === 'accepted' && (
-             <div className="px-4 py-1.5 bg-black/40 backdrop-blur-md rounded-full border border-white/10 flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
-                <span className="text-white font-mono text-[10px] tracking-widest">{formatDuration(callDuration)}</span>
-             </div>
+        <AnimatePresence>
+          {!isFullscreen && (
+            <motion.div 
+              initial={{ y: 100, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 100, opacity: 0 }}
+              className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-8 flex flex-col items-center gap-6 z-40"
+            >
+              
+              {callStatus === 'accepted' && (
+                 <div className="px-4 py-1.5 bg-black/40 backdrop-blur-md rounded-full border border-white/10 flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
+                    <span className="text-white font-mono text-[10px] tracking-widest">{formatDuration(callDuration)}</span>
+                 </div>
+              )}
+
+              <div className="flex items-center justify-center gap-4 md:gap-8">
+                <button onClick={toggleMic} title={t(isMicOn ? 'Silenciar' : 'Activar Micrófono', lang)} className={cn("w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all shadow-xl active:scale-95", isMicOn ? "bg-white/10 hover:bg-white/20 text-white" : "bg-red-500 text-white")}>
+                  {isMicOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+                </button>
+                
+                {type === 'video' && (
+                  <>
+                    <button onClick={toggleVideo} title={t(isVideoOn ? 'Apagar Cámara' : 'Encender Cámara', lang)} className={cn("w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all shadow-xl active:scale-95", isVideoOn ? "bg-white/10 hover:bg-white/20 text-white" : "bg-red-500 text-white")}>
+                      {isVideoOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+                    </button>
+                    <button onClick={handleScreenShare} title={t(isScreenSharing ? 'Dejar de Compartir' : 'Compartir Pantalla', lang)} className={cn("w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all shadow-xl active:scale-95", isScreenSharing ? "bg-w-accent text-w-bg" : "bg-white/10 hover:bg-white/20 text-white")}>
+                      {isScreenSharing ? <MonitorOff className="w-5 h-5" /> : <Monitor className="w-5 h-5" />}
+                    </button>
+                  </>
+                )}
+
+                <button onClick={toggleFullscreen} title={t(isFullscreen ? 'Salir de Pantalla Completa' : 'Pantalla Completa', lang)} className="w-12 h-12 md:w-14 md:h-14 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all shadow-xl active:scale-95">
+                  {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+                </button>
+
+                <button onClick={endCall} title={t('Finalizar Llamada', lang)} className="w-16 h-16 md:w-20 md:h-20 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-95 group">
+                  <PhoneOff className="w-8 h-8 group-hover:rotate-[135deg] transition-transform duration-300" />
+                </button>
+              </div>
+            </motion.div>
           )}
+        </AnimatePresence>
 
-          <div className="flex items-center justify-center gap-4 md:gap-8">
-            <button onClick={toggleMic} className={cn("w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all shadow-xl active:scale-95", isMicOn ? "bg-white/10 hover:bg-white/20 text-white" : "bg-red-500 text-white")}>
-              {isMicOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
-            </button>
-            
-            {type === 'video' && (
-              <>
-                <button onClick={toggleVideo} className={cn("w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all shadow-xl active:scale-95", isVideoOn ? "bg-white/10 hover:bg-white/20 text-white" : "bg-red-500 text-white")}>
-                  {isVideoOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-                </button>
-                <button onClick={handleScreenShare} className={cn("w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all shadow-xl active:scale-95", isScreenSharing ? "bg-w-accent text-w-bg" : "bg-white/10 hover:bg-white/20 text-white")}>
-                  {isScreenSharing ? <MonitorOff className="w-5 h-5" /> : <Monitor className="w-5 h-5" />}
-                </button>
-              </>
-            )}
-
-            <button onClick={endCall} className="w-16 h-16 md:w-20 md:h-20 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-95 group">
-              <PhoneOff className="w-8 h-8 group-hover:rotate-[135deg] transition-transform duration-300" />
-            </button>
-          </div>
-        </div>
+        {/* Exit Fullscreen Button (Floating) */}
+        {isFullscreen && (
+          <button 
+            onClick={toggleFullscreen}
+            className="absolute top-6 right-6 z-50 bg-black/40 hover:bg-black/60 backdrop-blur-md p-4 rounded-full text-white transition-all active:scale-90 border border-white/10"
+          >
+            <Minimize2 className="w-6 h-6" />
+          </button>
+        )}
 
         {/* Top Info Overlay */}
-        <div className="absolute top-6 left-6 hidden md:flex flex-col gap-3 z-40">
-          <div className="text-white bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 flex items-center gap-2 shadow-xl">
-             <span className="text-[10px] font-black uppercase tracking-widest">Encriptado • Gemini 3.1 Flash</span>
+        {!isFullscreen && (
+          <div className="absolute top-6 left-6 hidden md:flex flex-col gap-3 z-40">
+            <div className="text-white bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 flex items-center gap-2 shadow-xl">
+               <span className="text-[10px] font-black uppercase tracking-widest">Encriptado • Gemini 3.1 Flash</span>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </motion.div>
   );

@@ -297,102 +297,6 @@ export const UI_STRINGS: { [key: string]: { [lang: string]: string } } = {
     'Italian': 'Video',
     'Portuguese': 'Vídeo'
   },
-  'Voz': {
-    'Spanish': 'Voz',
-    'English': 'Voice',
-    'French': 'Voix',
-    'German': 'Stimme',
-    'Italian': 'Voce',
-    'Portuguese': 'Voz'
-  },
-  'Rechazar': {
-    'Spanish': 'Rechazar',
-    'English': 'Decline',
-    'French': 'Refuser',
-    'German': 'Ablehnen',
-    'Italian': 'Rifiuta',
-    'Portuguese': 'Recusar'
-  },
-  'Responder': {
-    'Spanish': 'Responder',
-    'English': 'Answer',
-    'French': 'Répondre',
-    'German': 'Antworten',
-    'Italian': 'Rispondi',
-    'Portuguese': 'Responder'
-  },
-  'Llamada de Voz': {
-    'Spanish': 'Llamada de Voz',
-    'English': 'Voice Call',
-    'French': 'Appel vocal',
-    'German': 'Sprachanruf',
-    'Italian': 'Chiamata vocale',
-    'Portuguese': 'Chamada de voz'
-  },
-  'Llamando a...': {
-    'Spanish': 'Llamando a {name}...',
-    'English': 'Calling {name}...',
-    'French': 'Appel de {name}...',
-    'German': '{name} wird angerufen...',
-    'Italian': 'Chiamata a {name}...',
-    'Portuguese': 'Chamando {name}...'
-  },
-  'Esperando respuesta...': {
-    'Spanish': 'Esperando respuesta...',
-    'English': 'Waiting for answer...',
-    'French': 'En attente de réponse...',
-    'German': 'Warten auf Antwort...',
-    'Italian': 'In attesa di risposta...',
-    'Portuguese': 'Aguardando resposta...'
-  },
-  'Sincronizando Traductor IA': {
-    'Spanish': 'Sincronizando Traductor IA',
-    'English': 'Synchronizing AI Translator',
-    'French': 'Synchronisation du traducteur IA',
-    'German': 'KI-Übersetzer wird synchronisiert',
-    'Italian': 'Sincronizzazione Traduttore IA',
-    'Portuguese': 'Sincronizando Tradutor IA'
-  },
-  'Traduciendo': {
-    'Spanish': 'Traduciendo',
-    'English': 'Translating',
-    'French': 'Traduction en cours',
-    'German': 'Wird übersetzt',
-    'Italian': 'Traduzione in corso',
-    'Portuguese': 'Traduzindo'
-  },
-  'Tú': {
-    'Spanish': 'Tú',
-    'English': 'You',
-    'French': 'Vous',
-    'German': 'Du',
-    'Italian': 'Tu',
-    'Portuguese': 'Você'
-  },
-  'Compartiendo': {
-    'Spanish': 'Compartiendo',
-    'English': 'Sharing',
-    'French': 'Partage en cours',
-    'German': 'Freigabe',
-    'Italian': 'Condivisione',
-    'Portuguese': 'Compartilhando'
-  },
-  'Idioma nativo': {
-    'Spanish': 'Idioma nativo',
-    'English': 'Native language',
-    'French': 'Langue maternelle',
-    'German': 'Muttersprache',
-    'Italian': 'Lingua madre',
-    'Portuguese': 'Idioma nativo'
-  },
-  'Empieza una conversación...': {
-    'Spanish': 'Empieza una conversación...',
-    'English': 'Start a conversation...',
-    'French': 'Démarrer une conversation...',
-    'German': 'Starte ein Gespräch...',
-    'Italian': 'Inizia una conversazione...',
-    'Portuguese': 'Inicie uma conversa...'
-  },
   'Nativo en': {
     'Spanish': 'Nativo en',
     'English': 'Native in',
@@ -401,37 +305,109 @@ export const UI_STRINGS: { [key: string]: { [lang: string]: string } } = {
     'Italian': 'Madrelingua in',
     'Portuguese': 'Nativo em'
   },
-  'Cerrar sesión': {
-    'Spanish': 'Cerrar sesión',
-    'English': 'Log out',
-    'French': 'Se déconnecter',
-    'German': 'Abmelden',
-    'Italian': 'Disconnetti',
-    'Portuguese': 'Sair'
+  'Habilitar Permisos': {
+    'Spanish': 'Habilitar Permisos',
+    'English': 'Enable Permissions',
+    'French': 'Activer les autorizaciones',
+    'German': 'Berechtigungen aktivieren',
+    'Italian': 'Abilita autorizzazioni',
+    'Portuguese': 'Habilitar permissões'
   },
-  'Configuración del sistema': {
-    'Spanish': 'Configuración del sistema',
-    'English': 'System settings',
-    'French': 'Paramètres système',
-    'German': 'Systemeinstellungen',
-    'Italian': 'Impostazioni di sistema',
-    'Portuguese': 'Configurações do sistema'
+  'Acceso Requerido': {
+    'Spanish': 'Acceso Requerido',
+    'English': 'Access Required',
+    'French': 'Accès requis',
+    'German': 'Zugriff erforderlich',
+    'Italian': 'Accesso richiesto',
+    'Portuguese': 'Acesso necessário'
   },
-  'Aplicar Cambios': {
-    'Spanish': 'Aplicar Cambios',
-    'English': 'Apply Changes',
-    'French': 'Appliquer les modifications',
-    'German': 'Änderungen übernehmen',
-    'Italian': 'Applica modifiche',
-    'Portuguese': 'Aplicar alterações'
+  'Para ofrecerte una experiencia de comunicación sin fronteras, necesitamos activar algunos permisos de tu sistema.': {
+    'Spanish': 'Para ofrecerte una experiencia de comunicación sin fronteras, necesitamos activar algunos permisos de tu sistema.',
+    'English': 'To offer you a communication experience without borders, we need to activate some system permissions.',
+    'French': 'Para vous offrir une expérience de communication sans frontières, nous devons activer certaines autorisations système.',
+    'German': 'Um Ihnen ein grenzenloses Kommunikationserlebnis zu bieten, müssen wir einige Systemberechtigungen aktivieren.',
+    'Italian': 'Per offrirti un\'esperienza di comunicazione senza confini, dobbiamo attivare alcune autorizzaciones di sistema.',
+    'Portuguese': 'Para oferecer uma experiência de comunicação sem fronteiras, precisamos ativar algumas permissões do seu sistema.'
   },
-  'Procesando...': {
-    'Spanish': 'Procesando...',
-    'English': 'Processing...',
-    'French': 'Traitement...',
-    'German': 'Wird verarbeitet...',
-    'Italian': 'Elaborazione...',
-    'Portuguese': 'Processando...'
+  'Voz y Video': {
+    'Spanish': 'Voz y Video',
+    'English': 'Voice & Video',
+    'French': 'Voix et Vidéo',
+    'German': 'Sprache & Video',
+    'Italian': 'Voce e Video',
+    'Portuguese': 'Voz e Vídeo'
+  },
+  'Activa el micrófono y la cámara para videollamadas con subtítulos en tiempo real.': {
+    'Spanish': 'Activa el micrófono y la cámara para videollamadas con subtítulos en tiempo real.',
+    'English': 'Activate microphone and camera for video calls with real-time subtitles.',
+    'French': 'Activez le microphone et la caméra pour les appels vidéo avec des sous-titres en temps réel.',
+    'German': 'Aktivieren Sie Mikrofon und Kamera für Videoanrufe mit Untertiteln in Echtzeit.',
+    'Italian': 'Attiva microfono e telecamera per videochiamate con sottotitoli in tempo reale.',
+    'Portuguese': 'Ative o microfone e a câmera para videochamadas com legendas em tempo real.'
+  },
+  'Notificaciones Real-Time': {
+    'Spanish': 'Notificaciones Real-Time',
+    'English': 'Real-Time Notifications',
+    'French': 'Notifications en temps réel',
+    'German': 'Echtzeit-Benachrichtigungen',
+    'Italian': 'Notifiche in tempo real',
+    'Portuguese': 'Notificações em tempo real'
+  },
+  'Recibe alertas de mensajes traducidos y llamadas entrantes cuando no estés en la app.': {
+    'Spanish': 'Recibe alertas de mensajes traducidos y llamadas entrantes cuando no estés en la app.',
+    'English': 'Receive alerts of translated messages and incoming calls when you are not in the app.',
+    'French': 'Recevez des alertes de messages traduits et d\'appels entrants lorsque vous n\'êtes pas dans l\'application.',
+    'German': 'Erhalten Sie Benachrichtigungen über übersetzte Nachrichten und eingehende Anrufe, wenn Sie nicht in der App sind.',
+    'Italian': 'Ricevi avvisi di messaggi tradotti e chiamate in arrivo quando non sei nell\'app.',
+    'Portuguese': 'Receba alertas de mensagens traduzidas e chamadas recebidas quando não estiver no aplicativo.'
+  },
+  'Algunos permisos han sido denegados. Por favor, habilítalos en la configuración de tu navegador para usar todas las funciones.': {
+    'Spanish': 'Algunos permisos han sido denegados. Por favor, habilítalos en la configuración de tu navegador para usar todas las funciones.',
+    'English': 'Some permissions have been denied. Please enable them in your browser settings to use all features.',
+    'French': 'Certaines autorisations ont été refusées. Veuillez les activer dans les paramètres de votre navigateur pour utiliser toutes les fonctionnalités.',
+    'German': 'Einige Berechtigungen wurden abgelehnt. Bitte aktivieren Sie diese in Ihren Browsereinstellungen, um alle Funktionen nutzen zu können.',
+    'Italian': 'Alcune autorizzazioni sono state negate. Per favore, habilitale nelle impostazioni del tuo browser per utilizzare tutte le funzionalità.',
+    'Portuguese': 'Algumas permissões foram negadas. Por favor, habilite-as nas configurações do seu navegador para usar todos os recursos.'
+  },
+  'Micrófono y cámara para subtítulos en real-time.': {
+    'Spanish': 'Micrófono y cámara para subtítulos en real-time.',
+    'English': 'Microphone and camera for real-time subtitles.',
+    'French': 'Microphone et caméra pour les sous-titres en temps réel.',
+    'German': 'Mikrofon und Kamera für Untertitel in Echtzeit.',
+    'Italian': 'Microfono e telecamera per sottotitoli in tempo reale.',
+    'Portuguese': 'Microfone e câmera para legendas em tempo real.'
+  },
+  'Alertas de mensajes y llamadas entrantes.': {
+    'Spanish': 'Alertas de mensajes y llamadas entrantes.',
+    'English': 'Alerts for messages and incoming calls.',
+    'French': 'Alertes pour les messages et les appels entrants.',
+    'German': 'Benachrichtigungen für Nachrichten und eingehende Anrufe.',
+    'Italian': 'Avvisi per messaggi e chiamate in arrivo.',
+    'Portuguese': 'Alertas para mensagens e chamadas recebidas.'
+  },
+  'Entendido': {
+    'Spanish': 'Entendido',
+    'English': 'Got it',
+    'French': 'Compris',
+    'German': 'Verstanden',
+    'Italian': 'Ho capito',
+    'Portuguese': 'Entendido'
+  },
+  'Pantalla Completa': {
+    'Spanish': 'Pantalla Completa',
+    'English': 'Full Screen',
+    'French': 'Plein Écran',
+    'German': 'Vollbild',
+    'Italian': 'Schermo Intero',
+    'Portuguese': 'Tela Cheia'
+  },
+  'Salir de Pantalla Completa': {
+    'Spanish': 'Salir de Pantalla Completa',
+    'English': 'Exit Full Screen',
+    'French': 'Quitter le Plein Écran',
+    'German': 'Vollbild beenden',
+    'Italian': 'Esci dallo Schermo Intero',
+    'Portuguese': 'Sair da Tela Cheia'
   }
 };
 

@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { requestNotificationPermission } from '../lib/notifications';
+import { auth } from '../lib/firebase';
 
 export type PermissionStatus = 'prompt' | 'granted' | 'denied' | 'loading';
 
@@ -42,13 +44,19 @@ export function usePermissions() {
   }, [checkStatus]);
 
   const requestAll = async () => {
-    // Push Notifications
-    if ('Notification' in window) {
-      const res = await Notification.requestPermission();
-      setNotifications(res as any);
+    // Step 1: Push Notifications (Elegant & Sequential)
+    try {
+      const userUid = auth.currentUser?.uid;
+      const granted = await requestNotificationPermission(userUid);
+      setNotifications(granted ? 'granted' : Notification.permission as any);
+    } catch (e) {
+      console.error("error requesting notifications", e);
     }
 
-    // Mic & Camera
+    // Small delay to prevent overlap of system dialogs
+    await new Promise(r => setTimeout(r, 500));
+
+    // Step 2: Mic & Camera
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
       // If successful, stop the tracks immediately

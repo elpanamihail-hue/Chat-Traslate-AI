@@ -16,6 +16,7 @@ import ChatRoom from './components/ChatRoom';
 import Settings from './components/Settings';
 import VideoCall from './components/VideoCall';
 import IncomingCall from './components/IncomingCall';
+import PermissionModal from './components/PermissionModal';
 import PWAPrompt from './components/PWAPrompt';
 import { motion, AnimatePresence } from 'motion/react';
 import { Loader2, ShieldCheck, ChevronLeft, AlertTriangle } from 'lucide-react';
@@ -35,10 +36,21 @@ export default function App() {
   const [incomingCall, setIncomingCall] = useState<any>(null);
   const [sessionStartTime] = useState(Date.now());
   const [sessionSetupDone, setSessionSetupDone] = useState(false);
+  const [showPermissionModal, setShowPermissionModal] = useState(false);
 
   const { mic, camera, notifications, requestAll } = usePermissions();
 
   const lang = profile?.nativeLanguage || 'English';
+
+  // Check if we need to show the initial permission modal
+  useEffect(() => {
+    if (mic !== 'loading' && camera !== 'loading' && notifications !== 'loading') {
+      const needsPermissions = mic === 'prompt' || camera === 'prompt' || notifications === 'prompt';
+      if (needsPermissions) {
+        setShowPermissionModal(true);
+      }
+    }
+  }, [mic, camera, notifications]);
 
   
   // Listen for Service Worker messages
@@ -471,6 +483,15 @@ export default function App() {
           />
         )}
       </AnimatePresence>
+      <AnimatePresence>
+        {showPermissionModal && (
+          <PermissionModal 
+            lang={lang} 
+            onClose={() => setShowPermissionModal(false)} 
+          />
+        )}
+      </AnimatePresence>
+
       <PWAPrompt />
       </div>
     </div>
