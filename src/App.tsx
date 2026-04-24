@@ -24,6 +24,10 @@ import { usePermissions } from './hooks/usePermissions';
 import { t } from './lib/i18n';
 
 export default function App() {
+  useEffect(() => {
+    console.log("Conexión establecida con la tabla 'chats'");
+  }, []);
+
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(() => {
@@ -176,13 +180,12 @@ export default function App() {
         
         // Find if any group has the inviteUid as a member
         const { data: existingGroups, error: groupsError } = await supabase
-          .from('groups')
+          .from('chats')
           .select(`
             *,
             members(user_id)
           `)
-          .in('id', groupIds)
-          .eq('is_group', false);
+          .in('id', groupIds);
 
         if (groupsError) throw groupsError;
 
@@ -194,12 +197,12 @@ export default function App() {
           const chatData: Chat = {
             id: existingGroup.id,
             participants: [profile.uid, inviteUid],
-            lastMessage: existingGroup.last_message,
-            lastMessageSenderId: existingGroup.last_message_sender_id,
-            updated_at: existingGroup.updated_at,
+            lastMessage: '',
+            lastMessageSenderId: '',
+            updated_at: existingGroup.created_at,
             isGroup: false,
             groupName: existingGroup.name,
-            groupPhoto: existingGroup.photo_url
+            groupPhoto: `https://ui-avatars.com/api/?name=${encodeURIComponent(existingGroup.name)}`
           };
           const { data: otherProfile, error: profileError } = await supabase
             .from('users')
@@ -222,28 +225,25 @@ export default function App() {
             .single();
 
           if (!otherUserError && otherUser) {
-            const { data: newGroup, error: createError } = await supabase
-              .from('groups')
+            const { data: newChat, error: createError } = await supabase
+              .from('chats')
               .insert({
-                updated_at: new Date().toISOString(),
-                last_message: '',
-                is_group: false,
-                name: otherUser.username,
-                photo_url: otherUser.photoURL
+                created_at: new Date().toISOString(),
+                name: otherUser.username
               })
               .select()
               .single();
 
-            if (!createError && newGroup) {
+            if (!createError && newChat) {
               await supabase.from('members').insert([
-                { group_id: newGroup.id, user_id: profile.uid },
-                { group_id: newGroup.id, user_id: inviteUid }
+                { group_id: newChat.id, user_id: profile.uid },
+                { group_id: newChat.id, user_id: inviteUid }
               ]);
 
               setActiveChat({
-                id: newGroup.id,
+                id: newChat.id,
                 participants: [profile.uid, inviteUid],
-                updated_at: newGroup.updated_at,
+                updated_at: newChat.created_at,
                 lastMessage: '',
                 isGroup: false,
                 participantProfiles: {
@@ -340,49 +340,25 @@ export default function App() {
       const nativeLanguage = profile.nativeLanguage;
 
       const channel = supabase
-        .channel('public:groups')
+        .channel('public:chats')
         .on(
           'postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'groups' },
+          { event: 'UPDATE', schema: 'public', table: 'chats' },
           async (payload) => {
-            const groupData = payload.new as any;
+            const chatData = payload.new as any;
             
             // Check membership
             const { data: member } = await supabase
               .from('members')
               .select('*')
-              .eq('group_id', groupData.id)
+              .eq('group_id', chatData.id)
               .eq('user_id', profileUid)
               .single();
 
             if (!member) return;
 
-            const lastUpdated = new Date(groupData.updated_at).getTime();
-            
-            if (
-              groupData.last_message_sender_id && 
-              groupData.last_message_sender_id !== profileUid &&
-              activeChat?.id !== groupData.id &&
-              lastUpdated > sessionStartTime
-            ) {
-              // Get sender profile (this part might need fetching if not in cache)
-              let senderProfile = activeChat?.participantProfiles?.[groupData.last_message_sender_id];
-              if (!senderProfile) {
-                const { data: p } = await supabase.from('users').select('*').eq('uid', groupData.last_message_sender_id).single();
-                senderProfile = p;
-              }
-
-              const title = groupData.is_group 
-                ? `${groupData.name} (${senderProfile?.username || 'Usuario'})`
-                : (senderProfile?.username || 'ChatTranslate');
-              
-              showNotification(
-                title,
-                groupData.last_message || 'Has recibido un nuevo mensaje',
-                nativeLanguage,
-                groupData.is_group ? groupData.photo_url : senderProfile?.photoURL
-              );
-            }
+            // Minimal schema doesn't have last_message_sender_id, so we skip notifications here
+            // unless we fetch the latest message from messages table.
           }
         )
         .subscribe();

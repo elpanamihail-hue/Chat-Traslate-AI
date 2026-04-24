@@ -47,13 +47,13 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
   useEffect(() => {
     const fetchChats = async () => {
       const { data, error } = await supabase
-        .from('groups')
+        .from('chats')
         .select(`
           *,
           members!inner(user_id)
         `)
         .eq('members.user_id', profile.uid)
-        .order('updated_at', { ascending: false });
+        .order('created_at', { ascending: false });
 
       if (!error && data) {
         const enrichedChats = await Promise.all(data.map(async (group: any) => {
@@ -68,13 +68,13 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
           const chat: Chat = {
             id: group.id,
             participants,
-            lastMessage: group.last_message,
-            lastMessageSenderId: group.last_message_sender_id,
-            updated_at: group.updated_at,
-            isGroup: group.is_group,
+            lastMessage: '', // Minimal schema
+            lastMessageSenderId: '',
+            updated_at: group.created_at,
+            isGroup: true, // We assume it's a group if it's in this list for now
             groupName: group.name,
-            groupPhoto: group.photo_url,
-            createdBy: group.created_by
+            groupPhoto: `https://ui-avatars.com/api/?name=${encodeURIComponent(group.name)}`,
+            createdBy: ''
           };
 
           if (!chat.participantProfiles && !chat.isGroup) {
@@ -108,15 +108,15 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
 
     fetchChats();
 
-    // Real-time subscription for group updates
+    // Real-time subscription for chat updates
     const channel = supabase
-      .channel('group-updates')
+      .channel('chat-updates')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'groups' },
+        { event: '*', schema: 'public', table: 'chats' },
         async (payload) => {
-          const newGroup = payload.new as any;
-          if (!newGroup || !newGroup.id) return;
+          const newChatData = payload.new as any;
+          if (!newChatData || !newChatData.id) return;
 
           // Check if user is a member
           const { data: member } = await supabase
@@ -136,15 +136,15 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
             const participants = allMembers?.map(m => m.user_id) || [];
 
             const chat: Chat = {
-              id: newGroup.id,
+              id: newChatData.id,
               participants,
-              lastMessage: newGroup.last_message,
-              lastMessageSenderId: newGroup.last_message_sender_id,
-              updated_at: newGroup.updated_at,
-              isGroup: newGroup.is_group,
-              groupName: newGroup.name,
-              groupPhoto: newGroup.photo_url,
-              createdBy: newGroup.created_by
+              lastMessage: '',
+              lastMessageSenderId: '',
+              updated_at: newChatData.created_at,
+              isGroup: true,
+              groupName: newChatData.name,
+              groupPhoto: `https://ui-avatars.com/api/?name=${encodeURIComponent(newChatData.name)}`,
+              createdBy: ''
             };
 
             setChats(prev => {
@@ -191,13 +191,10 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
     }
 
     const { data, error } = await supabase
-      .from('groups')
+      .from('chats')
       .insert({
-        updated_at: new Date().toISOString(),
-        last_message: '',
-        is_group: false,
-        name: otherUser.username,
-        photo_url: otherUser.photoURL
+        created_at: new Date().toISOString(),
+        name: otherUser.username
       })
       .select()
       .single();

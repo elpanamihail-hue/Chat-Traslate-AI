@@ -65,14 +65,10 @@ export default function CreateGroupModal({ profile, lang, onClose, onGroupCreate
       };
 
       const { data, error } = await supabase
-        .from('groups')
+        .from('chats')
         .insert({
           name: groupName.trim(),
-          is_group: true,
-          created_by: profile.uid,
-          updated_at: new Date().toISOString(),
-          last_message: '',
-          photo_url: `https://ui-avatars.com/api/?name=${encodeURIComponent(groupName)}&background=25D366&color=fff`
+          created_at: new Date().toISOString()
         })
         .select()
         .single();

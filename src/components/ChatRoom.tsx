@@ -247,14 +247,17 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
 
       if (msgError) throw msgError;
 
+      // We don't update chats table if it only has id, name, created_at
+      /*
       await supabase
-        .from('groups')
+        .from('chats')
         .update({
           last_message: textToSend || (audioUrl ? '🎤 Audio' : `Archivo: ${fileName}`),
           last_message_sender_id: profile.uid,
           updated_at: new Date().toISOString()
         })
         .eq('id', chat.id);
+      */
 
       setInputText('');
       setFile(null);
