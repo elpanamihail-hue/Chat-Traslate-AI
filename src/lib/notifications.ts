@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { translateText } from '../services/ai';
 
-export const requestNotificationPermission = async (userUid?: string) => {
+export const requestNotificationPermission = async (userId?: string) => {
   if (!('Notification' in window)) {
     console.warn('Este navegador no soporta notificaciones de escritorio');
     return false;
@@ -10,8 +10,8 @@ export const requestNotificationPermission = async (userUid?: string) => {
   const permission = await Notification.requestPermission();
   if (permission === 'granted') {
     await registerServiceWorker();
-    if (userUid) {
-      await setupFCM(userUid);
+    if (userId) {
+      await setupFCM(userId);
     }
     return true;
   }
@@ -30,7 +30,7 @@ const registerServiceWorker = async () => {
   }
 };
 
-const setupFCM = async (uid: string) => {
+const setupFCM = async (id: string) => {
   // Push notifications currently bypassed during Supabase migration
   // Placeholder for future Push service (OneSignal / WebPush)
   console.log('FCM setup bypassed for Supabase migration');

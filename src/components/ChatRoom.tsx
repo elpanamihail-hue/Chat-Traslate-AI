@@ -43,7 +43,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const otherUser = chat.participantProfiles 
-    ? (Object.values(chat.participantProfiles) as UserProfile[]).find(p => p.uid !== profile.uid)
+    ? (Object.values(chat.participantProfiles) as UserProfile[]).find(p => p.id !== profile.id)
     : undefined;
   const [otherUserStatus, setOtherUserStatus] = useState<'online' | 'offline'>('offline');
   const [memberCount, setMemberCount] = useState(chat.participants.length);
@@ -53,10 +53,10 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
   useEffect(() => {
     if (otherUser) {
       const channel = supabase
-        .channel(`user-status-${otherUser.uid}`)
+        .channel(`user-status-${otherUser.id}`)
         .on(
           'postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'users', filter: `uid=eq.${otherUser.uid}` },
+          { event: 'UPDATE', schema: 'public', table: 'users', filter: `id=eq.${otherUser.id}` },
           (payload) => {
             setOtherUserStatus((payload.new as UserProfile).status || 'offline');
           }
@@ -64,7 +64,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
         .subscribe();
       
       // Initial fetch
-      supabase.from('users').select('status').eq('uid', otherUser.uid).single().then(({ data }) => {
+      supabase.from('users').select('status').eq('id', otherUser.id).single().then(({ data }) => {
         if (data) setOtherUserStatus(data.status || 'offline');
       });
 
@@ -72,7 +72,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
         supabase.removeChannel(channel);
       };
     }
-  }, [otherUser?.uid]);
+  }, [otherUser?.id]);
 
   useEffect(() => {
     // Delta Sync Logic with Redundancy Protection
@@ -109,7 +109,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
           
           // Automatic Translation & Storage Logic
           // We save translations to DB so other devices read them directly
-          if (message.user_id !== profile.uid && message.text && !message.translations?.[profile.nativeLanguage]) {
+          if (message.user_id !== profile.id && message.text && !message.translations?.[profile.nativeLanguage]) {
             if (message.originalLanguage && message.originalLanguage !== profile.nativeLanguage) {
                try {
                  const translated = await translateText(message.text, profile.nativeLanguage);
@@ -234,7 +234,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
         .from('messages')
         .insert({
           chat_id: chat.id,
-          user_id: profile.uid,
+          user_id: profile.id,
           text: textToSend,
           originalLanguage: detectedLang || profile.nativeLanguage,
           translations: translations,
@@ -248,16 +248,14 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
       if (msgError) throw msgError;
 
       // We don't update chats table if it only has id, name, created_at
-      /*
       await supabase
         .from('chats')
         .update({
           last_message: textToSend || (audioUrl ? '🎤 Audio' : `Archivo: ${fileName}`),
-          last_message_sender_id: profile.uid,
+          last_message_sender_id: profile.id,
           updated_at: new Date().toISOString()
         })
         .eq('id', chat.id);
-      */
 
       setInputText('');
       setFile(null);
@@ -339,10 +337,10 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
         <div className="flex items-center gap-5 text-w-muted">
           {!chat.isGroup && (
             <>
-              <button onClick={() => onCall(otherUser?.uid || '', otherUser?.username || '', 'video')} className="hover:text-w-accent transition-colors">
+              <button onClick={() => onCall(otherUser?.id || '', otherUser?.username || '', 'video')} className="hover:text-w-accent transition-colors">
                 <Video className="w-5 h-5" />
               </button>
-              <button onClick={() => onCall(otherUser?.uid || '', otherUser?.username || '', 'voice')} className="hover:text-w-accent transition-colors">
+              <button onClick={() => onCall(otherUser?.id || '', otherUser?.username || '', 'voice')} className="hover:text-w-accent transition-colors">
                 <Phone className="w-5 h-5" />
               </button>
             </>
@@ -373,7 +371,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
         </div>
 
         {messages.map((msg, idx) => {
-          const isMine = msg.user_id === profile.uid;
+          const isMine = msg.user_id === profile.id;
           const currentLang = profile.nativeLanguage;
           const translatedText = msg.translations?.[currentLang];
           const isTranslated = !!translatedText && msg.originalLanguage !== currentLang;

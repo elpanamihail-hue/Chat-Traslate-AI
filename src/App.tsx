@@ -89,7 +89,7 @@ export default function App() {
         await supabase
           .from('users')
           .update({ status: status, updated_at: new Date().toISOString() })
-          .eq('uid', user.id);
+          .eq('id', user.id);
       };
 
       updateStatus('online');
@@ -164,20 +164,20 @@ export default function App() {
   // Handle Invite Link
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const inviteUid = params.get('invite');
-    if (!inviteUid || !profile || inviteUid === profile.uid) return;
+    const inviteId = params.get('invite');
+    if (!inviteId || !profile || inviteId === profile.id) return;
 
     const handleInvite = async () => {
         const { data: memberData, error: memberError } = await supabase
           .from('members')
           .select('chat_id')
-          .eq('user_id', profile.uid);
+          .eq('user_id', profile.id);
 
         if (memberError || !memberData) throw memberError;
 
         const chatIds = memberData.map(m => m.chat_id);
         
-        // Find if any chat has the inviteUid as a member
+        // Find if any chat has the inviteId as a member
         const { data: existingChats, error: chatsError } = await supabase
           .from('chats')
           .select(`
@@ -189,13 +189,13 @@ export default function App() {
         if (chatsError) throw chatsError;
 
         const existingChat = existingChats?.find(g => 
-          g.members.some((m: any) => m.user_id === inviteUid)
+          g.members.some((m: any) => m.user_id === inviteId)
         );
 
         if (existingChat) {
           const chatData: Chat = {
             id: existingChat.id,
-            participants: [profile.uid, inviteUid],
+            participants: [profile.id, inviteId],
             lastMessage: '',
             lastMessageSenderId: '',
             updated_at: existingChat.created_at,
@@ -206,13 +206,13 @@ export default function App() {
           const { data: otherProfile, error: profileError } = await supabase
             .from('users')
             .select('*')
-            .eq('uid', inviteUid)
+            .eq('id', inviteId)
             .single();
 
           if (!profileError && otherProfile) {
             chatData.participantProfiles = {
-              [profile.uid]: profile,
-              [inviteUid]: otherProfile
+              [profile.id]: profile,
+              [inviteId]: otherProfile
             };
             setActiveChat(chatData);
           }
@@ -220,7 +220,7 @@ export default function App() {
           const { data: otherUser, error: otherUserError } = await supabase
             .from('users')
             .select('*')
-            .eq('uid', inviteUid)
+            .eq('id', inviteId)
             .single();
 
           if (!otherUserError && otherUser) {
@@ -235,19 +235,19 @@ export default function App() {
 
             if (!createError && newChat) {
               await supabase.from('members').insert([
-                { chat_id: newChat.id, user_id: profile.uid },
-                { chat_id: newChat.id, user_id: inviteUid }
+                { chat_id: newChat.id, user_id: profile.id },
+                { chat_id: newChat.id, user_id: inviteId }
               ]);
 
               setActiveChat({
                 id: newChat.id,
-                participants: [profile.uid, inviteUid],
+                participants: [profile.id, inviteId],
                 updated_at: newChat.created_at,
                 lastMessage: '',
                 isGroup: false,
                 participantProfiles: {
-                  [profile.uid]: profile,
-                  [inviteUid]: otherUser
+                  [profile.id]: profile,
+                  [inviteId]: otherUser
                 }
               });
             }
@@ -262,7 +262,7 @@ export default function App() {
     };
 
     handleInvite();
-  }, [profile?.uid, window.location.search]); // Depend on UID and search params, not whole profile
+  }, [profile?.id, window.location.search]); // Depend on ID and search params, not whole profile
 
   useEffect(() => {
     if (user) {
@@ -272,7 +272,7 @@ export default function App() {
           const { data, error } = await supabase
             .from('users')
             .select('*')
-            .eq('uid', user.id)
+            .eq('id', user.id)
             .single();
 
           if (data && !error) {
@@ -298,7 +298,7 @@ export default function App() {
         .channel('public:users')
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'users', filter: `uid=eq.${user.id}` },
+          { event: '*', schema: 'public', table: 'users', filter: `id=eq.${user.id}` },
           (payload) => {
             console.log('Cambio en perfil detectado:', payload);
             if (payload.new) {
@@ -332,10 +332,9 @@ export default function App() {
     }
   }, [profile?.theme]);
 
-  // Global Notification Listener
   useEffect(() => {
-    if (profile?.uid) {
-      const profileUid = profile.uid;
+    if (profile?.id) {
+      const profileId = profile.id;
       const nativeLanguage = profile.nativeLanguage;
 
       const channel = supabase
@@ -351,7 +350,7 @@ export default function App() {
               .from('members')
               .select('*')
               .eq('chat_id', chatData.id)
-              .eq('user_id', profileUid)
+              .eq('user_id', profileId)
               .single();
 
             if (!member) return;
@@ -365,12 +364,11 @@ export default function App() {
         supabase.removeChannel(channel);
       };
     }
-  }, [profile?.uid, profile?.nativeLanguage, activeChat?.id, sessionStartTime]);
+  }, [profile?.id, profile?.nativeLanguage, activeChat?.id, sessionStartTime]);
 
-  // Incoming Call Listener
   useEffect(() => {
-    if (profile?.uid) {
-      const profileUid = profile.uid;
+    if (profile?.id) {
+      const profileId = profile.id;
       const oneMinuteAgo = new Date(Date.now() - 60000).toISOString();
 
       const channel = supabase
@@ -381,7 +379,7 @@ export default function App() {
             event: 'INSERT', 
             schema: 'public', 
             table: 'calls',
-            filter: `recipient_id=eq.${profileUid}` 
+            filter: `recipient_id=eq.${profileId}` 
           },
           (payload: any) => {
             const callData = payload.new;
@@ -402,7 +400,7 @@ export default function App() {
             event: 'UPDATE', 
             schema: 'public', 
             table: 'calls',
-            filter: `recipient_id=eq.${profileUid}` 
+            filter: `recipient_id=eq.${profileId}` 
           },
           (payload: any) => {
             if (payload.new.status !== 'ringing') {
@@ -418,7 +416,7 @@ export default function App() {
         stopVibration();
       };
     }
-  }, [profile?.uid]);
+  }, [profile?.id]);
 
   const initiateCall = async (recipientId: string, recipientName: string, type: 'video' | 'voice' = 'video') => {
     if (!profile) return;
@@ -427,7 +425,7 @@ export default function App() {
       const { data, error } = await supabase
         .from('calls')
         .insert({
-          caller_id: profile.uid,
+          caller_id: profile.id,
           caller_name: profile.username,
           caller_photo: profile.photoURL || '',
           recipient_id: recipientId,

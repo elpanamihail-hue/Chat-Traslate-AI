@@ -34,7 +34,7 @@ export default function CreateGroupModal({ profile, lang, onClose, onGroupCreate
         .from('users')
         .select('*')
         .ilike('username', `%${term}%`)
-        .neq('uid', profile.uid)
+        .neq('id', profile.id)
         .limit(10);
       
       if (!error && data) {
@@ -47,8 +47,8 @@ export default function CreateGroupModal({ profile, lang, onClose, onGroupCreate
 
   const toggleUserSelection = (user: UserProfile) => {
     setSelectedUsers(prev => 
-      prev.find(u => u.uid === user.uid)
-        ? prev.filter(u => u.uid !== user.uid)
+      prev.find(u => u.id === user.id)
+        ? prev.filter(u => u.id !== user.id)
         : [...prev, user]
     );
   };
@@ -58,10 +58,10 @@ export default function CreateGroupModal({ profile, lang, onClose, onGroupCreate
 
     setIsCreating(true);
     try {
-      const participants = [profile.uid, ...selectedUsers.map(u => u.uid)];
+      const participants = [profile.id, ...selectedUsers.map(u => u.id)];
       const participantProfiles = {
-        [profile.uid]: profile,
-        ...selectedUsers.reduce((acc, u) => ({ ...acc, [u.uid]: u }), {})
+        [profile.id]: profile,
+        ...selectedUsers.reduce((acc, u) => ({ ...acc, [u.id]: u }), {})
       };
 
       const { data, error } = await supabase
@@ -75,9 +75,9 @@ export default function CreateGroupModal({ profile, lang, onClose, onGroupCreate
 
       if (!error && data) {
         // Insert members into the members table
-        const memberInserts = participants.map(uid => ({
+        const memberInserts = participants.map(id => ({
           chat_id: data.id,
-          user_id: uid
+          user_id: id
         }));
         
         await supabase.from('members').insert(memberInserts);
@@ -152,7 +152,7 @@ export default function CreateGroupModal({ profile, lang, onClose, onGroupCreate
                 <div className="flex flex-wrap gap-2 mb-2">
                   {selectedUsers.map(u => (
                     <motion.div 
-                      key={u.uid}
+                      key={u.id}
                       initial={{ scale: 0.8, opacity: 0 }}
                       animate={{ scale: 1, opacity: 1 }}
                       exit={{ scale: 0.8, opacity: 0 }}
@@ -169,10 +169,10 @@ export default function CreateGroupModal({ profile, lang, onClose, onGroupCreate
             {/* Results */}
             <div className="max-h-[200px] overflow-y-auto space-y-1 pr-2 custom-scrollbar">
               {searchResults.map(user => {
-                const isSelected = selectedUsers.find(u => u.uid === user.uid);
+                const isSelected = selectedUsers.find(u => u.id === user.id);
                 return (
                   <div 
-                    key={user.uid} 
+                    key={user.id} 
                     onClick={() => toggleUserSelection(user)}
                     className={cn(
                       "flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all",

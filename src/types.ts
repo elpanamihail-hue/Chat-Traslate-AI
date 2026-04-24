@@ -1,5 +1,5 @@
 export interface UserProfile {
-  uid: string;
+  id: string;
   username: string;
   photoURL: string;
   nativeLanguage: string;
@@ -18,7 +18,7 @@ export interface Chat {
   lastMessage?: string;
   lastMessageSenderId?: string;
   updated_at: string;
-  participantProfiles?: { [uid: string]: UserProfile };
+  participantProfiles?: { [id: string]: UserProfile };
   isGroup?: boolean;
   groupName?: string;
   groupPhoto?: string;

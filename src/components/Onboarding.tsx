@@ -24,7 +24,7 @@ export default function Onboarding({ user }: Props) {
       // Check if username unique
       const { data: nameData, error: nameError } = await supabase
         .from('usernames')
-        .select('uid')
+        .select('id')
         .eq('username', username.toLowerCase())
         .single();
       
@@ -34,7 +34,7 @@ export default function Onboarding({ user }: Props) {
       }
 
       const profile = {
-        uid: user.id,
+        id: user.id,
         username: username,
         photoURL: user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${username}`,
         nativeLanguage: language,
@@ -56,7 +56,7 @@ export default function Onboarding({ user }: Props) {
 
       const { error: userError } = await supabase
         .from('usernames')
-        .upsert({ username: username.toLowerCase(), uid: user.id });
+        .upsert({ username: username.toLowerCase(), id: user.id });
 
       if (userError) {
         console.error('Error detallado de Supabase (usernames upsert):', userError);

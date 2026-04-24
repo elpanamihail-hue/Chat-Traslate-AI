@@ -27,7 +27,7 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
   const lang = profile.nativeLanguage;
 
   const copyInviteLink = () => {
-    const link = `${window.location.origin}/?invite=${profile.uid}`;
+    const link = `${window.location.origin}/?invite=${profile.id}`;
     navigator.clipboard.writeText(link);
     setShowInviteToast(true);
     setTimeout(() => setShowInviteToast(false), 2000);
@@ -52,7 +52,7 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
           *,
           members!inner(*)
         `)
-        .eq('members.user_id', profile.uid)
+        .eq('members.user_id', profile.id)
         .order('created_at', { ascending: false });
 
       if (!error && data) {
@@ -68,9 +68,9 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
           const chat: Chat = {
             id: chatData.id,
             participants,
-            lastMessage: chatData.last_message || '',
+            lastMessage: typeof chatData.last_message === 'object' ? chatData.last_message?.text : (chatData.last_message || ''),
             lastMessageSenderId: chatData.last_message_sender_id || '',
-            updated_at: chatData.created_at,
+            updated_at: chatData.updated_at || chatData.created_at,
             isGroup: chatData.is_group ?? true,
             groupName: chatData.name,
             groupPhoto: chatData.photo_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(chatData.name)}`,
@@ -78,14 +78,14 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
           };
 
           if (!chat.participantProfiles && !chat.isGroup) {
-            const otherId = participants.find((p: string) => p !== profile.uid);
+            const otherId = participants.find((p: string) => p !== profile.id);
             if (otherId) {
               let otherProfile = await localDb.profiles.get(otherId);
               if (!otherProfile) {
                 const { data: profileData } = await supabase
                   .from('users')
                   .select('*')
-                  .eq('uid', otherId)
+                  .eq('id', otherId)
                   .single();
                 if (profileData) {
                   otherProfile = profileData;
@@ -93,7 +93,7 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
                 }
               }
               chat.participantProfiles = {
-                [profile.uid]: profile,
+                [profile.id]: profile,
                 [otherId]: otherProfile
               };
             }
@@ -123,7 +123,7 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
             .from('members')
             .select('*')
             .eq('chat_id', newChatData.id)
-            .eq('user_id', profile.uid)
+            .eq('user_id', profile.id)
             .single();
 
           if (member) {
@@ -136,9 +136,9 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
             const chat: Chat = {
               id: newChatData.id,
               participants: allMembers?.map(m => m.user_id) || [],
-              lastMessage: newChatData.last_message || '',
+              lastMessage: typeof newChatData.last_message === 'object' ? newChatData.last_message?.text : (newChatData.last_message || ''),
               lastMessageSenderId: newChatData.last_message_sender_id || '',
-              updated_at: newChatData.created_at,
+              updated_at: newChatData.updated_at || newChatData.created_at,
               isGroup: newChatData.is_group ?? true,
               groupName: newChatData.name,
               groupPhoto: newChatData.photo_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(newChatData.name)}`,
@@ -158,7 +158,7 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [profile.uid]);
+  }, [profile.id]);
 
   const handleSearch = async (term: string) => {
     setSearchTerm(term);
@@ -171,7 +171,7 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
       .from('users')
       .select('*')
       .ilike('username', `%${term}%`)
-      .neq('uid', profile.uid)
+      .neq('id', profile.id)
       .limit(10);
     
     if (!error && data) {
@@ -180,7 +180,7 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
   };
 
   const startChat = async (otherUser: UserProfile) => {
-    const existing = chats.find(c => c.participants.includes(otherUser.uid));
+    const existing = chats.find(c => c.participants.includes(otherUser.id));
     if (existing) {
       onChatSelect(existing);
       setIsSearching(false);
@@ -200,19 +200,19 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
     if (!error && data) {
       // Insert members for the 1:1 chat
       await supabase.from('members').insert([
-        { chat_id: data.id, user_id: profile.uid },
-        { chat_id: data.id, user_id: otherUser.uid }
+        { chat_id: data.id, user_id: profile.id },
+        { chat_id: data.id, user_id: otherUser.id }
       ]);
 
       const enrichedChat: Chat = {
         id: data.id,
-        participants: [profile.uid, otherUser.uid],
+        participants: [profile.id, otherUser.id],
         updated_at: data.updated_at,
         lastMessage: '',
         isGroup: false,
         participantProfiles: {
-          [profile.uid]: profile,
-          [otherUser.uid]: otherUser
+          [profile.id]: profile,
+          [otherUser.id]: otherUser
         }
       };
       await localDb.chats.put(enrichedChat);
@@ -277,7 +277,7 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
                 <p className="text-[10px] font-bold text-w-accent uppercase tracking-widest">Invitar personas</p>
                 <div className="flex items-center gap-3">
                    <div className="flex-1 bg-w-darker px-4 py-3 rounded-xl border border-white/5 text-[10px] font-mono text-w-muted truncate">
-                      {window.location.origin}/?invite={profile.uid}
+                      {window.location.origin}/?invite={profile.id}
                    </div>
                    <button 
                     onClick={copyInviteLink}
@@ -297,7 +297,7 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
              )}
              {searchResults.map(user => (
                <div 
-                 key={user.uid} 
+                 key={user.id} 
                  onClick={() => startChat(user)}
                  className="flex items-center gap-4 p-4 hover:bg-w-header cursor-pointer transition-colors"
                >
@@ -322,10 +322,10 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
                if (c.isGroup) {
                  return c.groupName?.toLowerCase().includes(searchTerm.toLowerCase());
                }
-               const other = Object.values(c.participantProfiles || {}).find(p => (p as UserProfile).uid !== profile.uid) as UserProfile | undefined;
+               const other = Object.values(c.participantProfiles || {}).find(p => (p as UserProfile).id !== profile.id) as UserProfile | undefined;
                return other?.username.toLowerCase().includes(searchTerm.toLowerCase()) || false;
             }).map(chat => {
-              const otherUser = Object.values(chat.participantProfiles || {}).find(p => (p as UserProfile).uid !== profile.uid) as UserProfile | undefined;
+              const otherUser = Object.values(chat.participantProfiles || {}).find(p => (p as UserProfile).id !== profile.id) as UserProfile | undefined;
               
               const isActive = activeChatId === chat.id;
 

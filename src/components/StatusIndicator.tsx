@@ -3,12 +3,12 @@ import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
 
 interface Props {
-  uid?: string;
+  id?: string;
   status?: 'online' | 'offline';
   className?: string;
 }
 
-export default function StatusIndicator({ uid, status: initialStatus, className }: Props) {
+export default function StatusIndicator({ id, status: initialStatus, className }: Props) {
   const [status, setStatus] = useState<'online' | 'offline'>(initialStatus || 'offline');
 
   useEffect(() => {
@@ -16,14 +16,14 @@ export default function StatusIndicator({ uid, status: initialStatus, className 
       setStatus(initialStatus);
       return;
     }
-    if (!uid) return;
+    if (!id) return;
 
     // Fetch initial status from Supabase
     const fetchStatus = async () => {
       const { data } = await supabase
         .from('users')
         .select('status')
-        .eq('uid', uid)
+        .eq('id', id)
         .single();
       
       if (data) setStatus(data.status || 'offline');
@@ -33,10 +33,10 @@ export default function StatusIndicator({ uid, status: initialStatus, className 
 
     // Subscribe to real-time status changes
     const channel = supabase
-      .channel(`status-${uid}`)
+      .channel(`status-${id}`)
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'users', filter: `uid=eq.${uid}` },
+        { event: 'UPDATE', schema: 'public', table: 'users', filter: `id=eq.${id}` },
         (payload) => {
           if (payload.new && 'status' in payload.new) {
             setStatus(payload.new.status as 'online' | 'offline');
@@ -48,7 +48,7 @@ export default function StatusIndicator({ uid, status: initialStatus, className 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [uid, initialStatus]);
+  }, [id, initialStatus]);
 
   return (
     <div 

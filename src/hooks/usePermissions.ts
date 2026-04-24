@@ -47,8 +47,8 @@ export function usePermissions() {
     // Step 1: Push Notifications (Elegant & Sequential)
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userUid = session?.user?.id;
-      const granted = await requestNotificationPermission(userUid);
+      const userId = session?.user?.id;
+      const granted = await requestNotificationPermission(userId);
       setNotifications(granted ? 'granted' : Notification.permission as any);
     } catch (e) {
       console.error("error requesting notifications", e);

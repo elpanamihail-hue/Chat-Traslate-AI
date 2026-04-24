@@ -35,7 +35,7 @@ export default function Settings({ profile, onClose }: Props) {
   );
 
   const handleRequestNotifs = async () => {
-    const granted = await requestNotificationPermission(profile.uid);
+    const granted = await requestNotificationPermission(profile.id);
     setNotifStatus(granted ? 'granted' : 'denied');
     if (granted) setMessage('Notificaciones activadas');
     else setMessage('Permiso de notificación denegado');
@@ -52,7 +52,7 @@ export default function Settings({ profile, onClose }: Props) {
       if (username !== profile.username) {
         const { data: nameData } = await supabase
           .from('usernames')
-          .select('uid')
+          .select('id')
           .eq('username', username.toLowerCase())
           .single();
         
@@ -63,11 +63,11 @@ export default function Settings({ profile, onClose }: Props) {
         
         // Update username registry
         await supabase.from('usernames').delete().eq('username', profile.username.toLowerCase());
-        await supabase.from('usernames').insert({ username: username.toLowerCase(), uid: profile.uid });
+        await supabase.from('usernames').insert({ username: username.toLowerCase(), id: profile.id });
       }
 
       const updates = {
-        uid: profile.uid,
+        id: profile.id,
         username: username,
         nativeLanguage: language,
         theme: theme,
