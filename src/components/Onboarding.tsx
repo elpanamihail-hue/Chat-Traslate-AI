@@ -43,25 +43,32 @@ export default function Onboarding({ user }: Props) {
         setupComplete: true,
       };
 
-      // Cache locally
-      localStorage.setItem('user_profile_cache', JSON.stringify(profile));
-
       // Save to Supabase
+      console.log('Intentando upsert en users:', profile);
       const { error: profileError } = await supabase
         .from('users')
         .upsert(profile);
       
-      if (profileError) throw profileError;
+      if (profileError) {
+        console.error('Error detallado de Supabase (users upsert):', profileError);
+        throw profileError;
+      }
 
       const { error: userError } = await supabase
         .from('usernames')
         .insert({ username: username.toLowerCase(), uid: user.id });
 
-      if (userError) throw userError;
+      if (userError) {
+        console.error('Error detallado de Supabase (usernames insert):', userError);
+        throw userError;
+      }
+
+      // Cache locally only after success
+      localStorage.setItem('user_profile_cache', JSON.stringify(profile));
       
     } catch (err: any) {
-      console.error(err);
-      setError('Error al guardar el perfil. Intenta de nuevo.');
+      console.error('Error en handleComplete:', err);
+      setError(`Error al guardar el perfil: ${err.message || 'Intenta de nuevo'}`);
       setLoading(false);
     }
   };

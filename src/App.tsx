@@ -235,11 +235,19 @@ export default function App() {
             .single();
 
           if (data && !error) {
+            console.log('Perfil encontrado:', data);
             setProfile(data);
             localStorage.setItem('user_profile_cache', JSON.stringify(data));
+            // If profile is complete, we can mark session setup as done too
+            if (data.setupComplete) {
+              setSessionSetupDone(true);
+            }
+          } else if (error && error.code !== 'PGRST116') { // PGRST116 is 'no rows found'
+            console.error('Error fetching profile:', error);
           }
           setFetchingProfile(false);
         } catch (e) {
+          console.error('Error en fetchFreshProfile:', e);
           handleQuotaError(e);
           setFetchingProfile(false);
         }
@@ -251,10 +259,14 @@ export default function App() {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'users', filter: `uid=eq.${user.id}` },
           (payload) => {
+            console.log('Cambio en perfil detectado:', payload);
             if (payload.new) {
               const data = payload.new as UserProfile;
               setProfile(data);
               localStorage.setItem('user_profile_cache', JSON.stringify(data));
+              if (data.setupComplete) {
+                setSessionSetupDone(true);
+              }
             }
           }
         )
@@ -449,30 +461,20 @@ export default function App() {
     return <Login />;
   }
 
-  // Handle immediate permission trigger for ALL users who haven't completed setup in this session
-  // or haven't saved it to their profile.
-  if (!sessionSetupDone && (!profile || (profile && !profile.setupComplete))) {
-    return (
-      <SetupWizard 
-        onComplete={async () => {
-          setSessionSetupDone(true);
-          if (profile) {
-            try {
-              await supabase
-                .from('users')
-                .update({ setupComplete: true })
-                .eq('uid', profile.uid);
-            } catch (e) {
-              console.error("Error updating setup state:", e);
-            }
-          }
-        }} 
-      />
-    );
-  }
+  // Handle immediate permission trigger for users who haven't completed setup
+  // SKIP if profile is already complete
+  if (!profile?.setupComplete) {
+    if (!sessionSetupDone) {
+      return (
+        <SetupWizard 
+          onComplete={() => setSessionSetupDone(true)} 
+        />
+      );
+    }
 
-  if (!profile && !fetchingProfile) {
-    return <Onboarding user={user} />;
+    if (!profile && !fetchingProfile) {
+      return <Onboarding user={user} />;
+    }
   }
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
