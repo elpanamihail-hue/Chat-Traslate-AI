@@ -381,17 +381,17 @@ export default function App() {
             event: 'INSERT', 
             schema: 'public', 
             table: 'calls',
-            filter: `recipientId=eq.${profileUid}` 
+            filter: `recipient_id=eq.${profileUid}` 
           },
           (payload: any) => {
             const callData = payload.new;
             if (callData.status === 'ringing' && callData.created_at > oneMinuteAgo) {
               setIncomingCall(callData);
               showCallNotification(
-                callData.callerName,
+                callData.caller_name,
                 callData.id,
                 callData.type,
-                callData.callerPhoto
+                callData.caller_photo
               );
             }
           }
@@ -402,7 +402,7 @@ export default function App() {
             event: 'UPDATE', 
             schema: 'public', 
             table: 'calls',
-            filter: `recipientId=eq.${profileUid}` 
+            filter: `recipient_id=eq.${profileUid}` 
           },
           (payload: any) => {
             if (payload.new.status !== 'ringing') {
@@ -427,10 +427,10 @@ export default function App() {
       const { data, error } = await supabase
         .from('calls')
         .insert({
-          callerId: profile.uid,
-          callerName: profile.username,
-          callerPhoto: profile.photoURL || '',
-          recipientId,
+          caller_id: profile.uid,
+          caller_name: profile.username,
+          caller_photo: profile.photoURL || '',
+          recipient_id: recipientId,
           type,
           status: 'ringing'
         })
@@ -454,8 +454,8 @@ export default function App() {
         .eq('id', incomingCall.id);
 
       setActiveCall({ 
-        peerId: incomingCall.callerId, 
-        remoteName: incomingCall.callerName, 
+        peerId: incomingCall.caller_id, 
+        remoteName: incomingCall.caller_name, 
         callId: incomingCall.id, 
         isCaller: false, 
         type: incomingCall.type 
@@ -616,7 +616,7 @@ export default function App() {
                 </div>
                 <h1 className="text-4xl font-black text-w-text mb-4 tracking-tighter uppercase">ChatTranslate</h1>
                 <p className="text-w-muted max-w-md text-sm leading-relaxed font-medium">
-                  {t('Conéctate sin barreras con traducciones de {engine}. Envía mensajes y archivos de forma segura con privacidad global.', lang, { engine: <span className="text-w-accent font-bold">Gemini AI</span> })}
+                  {t('Conéctate sin barreras con traducciones de {engine}. Envía mensajes y archivos de forma segura con privacidad global.', lang, { engine: 'Gemini AI' })}
                 </p>
                 <div className="mt-16 flex flex-col items-center gap-4">
                   <div className="px-4 py-2 bg-w-header border border-white/10 rounded-full flex items-center gap-3 shadow-xl">
@@ -660,9 +660,9 @@ export default function App() {
       <AnimatePresence>
         {incomingCall && profile && (
           <IncomingCall 
-            callerName={incomingCall.callerName}
-            callerPhoto={incomingCall.callerPhoto}
-            type={incomingCall.type}
+            callerName={incomingCall.caller_name}
+            callerPhoto={incomingCall.caller_photo}
+            type={incomingCall.type === 'voice' ? 'audio' : 'video'}
             lang={profile.nativeLanguage}
             onAccept={handleAcceptCall}
             onDecline={handleDeclineCall}
