@@ -9,7 +9,7 @@ export class LocalDatabase extends Dexie {
   constructor() {
     super('ChatAppLocalDB');
     this.version(1).stores({
-      messages: 'id, group_id, created_at, user_id',
+      messages: 'id, chat_id, created_at, user_id',
       chats: 'id, updated_at',
       profiles: 'uid, username'
     });

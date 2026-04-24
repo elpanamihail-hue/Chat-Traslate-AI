@@ -26,7 +26,7 @@ interface Props {
 export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
   // Use LiveQuery to automatically update when localDb changes
   const localMessages = useLiveQuery(
-    () => localDb.messages.where('group_id').equals(chat.id).sortBy('created_at'),
+    () => localDb.messages.where('chat_id').equals(chat.id).sortBy('created_at'),
     [chat.id]
   );
   
@@ -79,7 +79,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
     const loadDelta = async () => {
       // Find latest message timestamp in local storage
       const lastMsgs = await localDb.messages
-        .where('chatId')
+        .where('chat_id')
         .equals(chat.id)
         .reverse()
         .sortBy('created_at');
@@ -90,7 +90,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
       const { data: newMsgs, error } = await supabase
         .from('messages')
         .select('*')
-        .eq('group_id', chat.id)
+        .eq('chat_id', chat.id)
         .gt('created_at', lastTimestamp)
         .order('created_at', { ascending: true });
 
@@ -105,7 +105,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
             created_at: msg.created_at,
             id: msg.id
           };
-          await localDb.messages.put({ ...message, group_id: chat.id });
+          await localDb.messages.put({ ...message, chat_id: chat.id });
           
           // Automatic Translation & Storage Logic
           // We save translations to DB so other devices read them directly
@@ -136,7 +136,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
         .channel(`chat-room-${chat.id}`)
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'messages', filter: `group_id=eq.${chat.id}` },
+          { event: '*', schema: 'public', table: 'messages', filter: `chat_id=eq.${chat.id}` },
           async (payload) => {
             const rawMsg = payload.new as any;
             if (!rawMsg || !rawMsg.id) return;
@@ -152,7 +152,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
               // Avoid re-rendering/re-processing if it already exists and hasn't changed significantly
               if (payload.eventType === 'INSERT' && existing) return;
               
-              await localDb.messages.put({ ...message, group_id: chat.id });
+              await localDb.messages.put({ ...message, chat_id: chat.id });
             }
           }
         )
@@ -233,7 +233,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
       const { error: msgError } = await supabase
         .from('messages')
         .insert({
-          group_id: chat.id,
+          chat_id: chat.id,
           user_id: profile.uid,
           text: textToSend,
           originalLanguage: detectedLang || profile.nativeLanguage,

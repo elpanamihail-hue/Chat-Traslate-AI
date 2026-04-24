@@ -48,13 +48,22 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
     const fetchChats = async () => {
       const { data, error } = await supabase
         .from('chats')
-        .select('*')
-        .contains('participants', [profile.uid])
+        .select(`
+          *,
+          members!inner(*)
+        `)
+        .eq('members.user_id', profile.uid)
         .order('created_at', { ascending: false });
 
       if (!error && data) {
         const enrichedChats = await Promise.all(data.map(async (chatData: any) => {
-          const participants = chatData.participants || [];
+          // Fetch all members for this chat to get participants list
+          const { data: memberData } = await supabase
+            .from('members')
+            .select('user_id')
+            .eq('chat_id', chatData.id);
+          
+          const participants = memberData?.map(m => m.user_id) || [];
           
           const chat: Chat = {
             id: chatData.id,
@@ -109,11 +118,24 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
           const newChatData = payload.new as any;
           if (!newChatData || !newChatData.id) return;
 
-          // Check if user is a participant
-          if (newChatData.participants && newChatData.participants.includes(profile.uid)) {
+          // Check if user is a member
+          const { data: member } = await supabase
+            .from('members')
+            .select('*')
+            .eq('chat_id', newChatData.id)
+            .eq('user_id', profile.uid)
+            .single();
+
+          if (member) {
+             // Fetch all members for the full participants array
+             const { data: allMembers } = await supabase
+               .from('members')
+               .select('user_id')
+               .eq('chat_id', newChatData.id);
+
             const chat: Chat = {
               id: newChatData.id,
-              participants: newChatData.participants,
+              participants: allMembers?.map(m => m.user_id) || [],
               lastMessage: newChatData.last_message || '',
               lastMessageSenderId: newChatData.last_message_sender_id || '',
               updated_at: newChatData.created_at,
@@ -178,8 +200,8 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
     if (!error && data) {
       // Insert members for the 1:1 chat
       await supabase.from('members').insert([
-        { group_id: data.id, user_id: profile.uid },
-        { group_id: data.id, user_id: otherUser.uid }
+        { chat_id: data.id, user_id: profile.uid },
+        { chat_id: data.id, user_id: otherUser.uid }
       ]);
 
       const enrichedChat: Chat = {

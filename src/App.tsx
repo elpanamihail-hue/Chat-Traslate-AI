@@ -168,16 +168,28 @@ export default function App() {
     if (!inviteUid || !profile || inviteUid === profile.uid) return;
 
     const handleInvite = async () => {
-      try {
+        const { data: memberData, error: memberError } = await supabase
+          .from('members')
+          .select('chat_id')
+          .eq('user_id', profile.uid);
+
+        if (memberError || !memberData) throw memberError;
+
+        const chatIds = memberData.map(m => m.chat_id);
+        
+        // Find if any chat has the inviteUid as a member
         const { data: existingChats, error: chatsError } = await supabase
           .from('chats')
-          .select('*')
-          .contains('participants', [profile.uid]);
+          .select(`
+            *,
+            members(user_id)
+          `)
+          .in('id', chatIds);
 
         if (chatsError) throw chatsError;
 
         const existingChat = existingChats?.find(g => 
-          (g.participants as string[] || []).includes(inviteUid)
+          g.members.some((m: any) => m.user_id === inviteUid)
         );
 
         if (existingChat) {
@@ -216,13 +228,17 @@ export default function App() {
               .from('chats')
               .insert({
                 created_at: new Date().toISOString(),
-                name: otherUser.username,
-                participants: [profile.uid, inviteUid]
+                name: otherUser.username
               })
               .select()
               .single();
 
             if (!createError && newChat) {
+              await supabase.from('members').insert([
+                { chat_id: newChat.id, user_id: profile.uid },
+                { chat_id: newChat.id, user_id: inviteUid }
+              ]);
+
               setActiveChat({
                 id: newChat.id,
                 participants: [profile.uid, inviteUid],
@@ -331,9 +347,16 @@ export default function App() {
             const chatData = payload.new as any;
             
             // Check membership
-            if (!chatData.participants?.includes(profileUid)) return;
+            const { data: member } = await supabase
+              .from('members')
+              .select('*')
+              .eq('chat_id', chatData.id)
+              .eq('user_id', profileUid)
+              .single();
 
-            // Minimal logic for now as requested
+            if (!member) return;
+
+            // Minimal logic for now
           }
         )
         .subscribe();

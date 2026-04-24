@@ -68,13 +68,20 @@ export default function CreateGroupModal({ profile, lang, onClose, onGroupCreate
         .from('chats')
         .insert({
           name: groupName.trim(),
-          created_at: new Date().toISOString(),
-          participants: participants
+          created_at: new Date().toISOString()
         })
         .select()
         .single();
 
       if (!error && data) {
+        // Insert members into the members table
+        const memberInserts = participants.map(uid => ({
+          chat_id: data.id,
+          user_id: uid
+        }));
+        
+        await supabase.from('members').insert(memberInserts);
+        
         onGroupCreated(data.id);
       }
     } catch (error) {
