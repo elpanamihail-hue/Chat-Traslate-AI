@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
 
 interface Props {
@@ -19,13 +18,36 @@ export default function StatusIndicator({ uid, status: initialStatus, className 
     }
     if (!uid) return;
 
-    const unsub = onSnapshot(doc(db, 'users', uid), (docSnap) => {
-      if (docSnap.exists()) {
-        setStatus(docSnap.data().status || 'offline');
-      }
-    });
+    // Fetch initial status from Supabase
+    const fetchStatus = async () => {
+      const { data } = await supabase
+        .from('users')
+        .select('status')
+        .eq('uid', uid)
+        .single();
+      
+      if (data) setStatus(data.status || 'offline');
+    };
 
-    return () => unsub();
+    fetchStatus();
+
+    // Subscribe to real-time status changes
+    const channel = supabase
+      .channel(`status-${uid}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'users', filter: `uid=eq.${uid}` },
+        (payload) => {
+          if (payload.new && 'status' in payload.new) {
+            setStatus(payload.new.status as 'online' | 'offline');
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [uid, initialStatus]);
 
   return (
