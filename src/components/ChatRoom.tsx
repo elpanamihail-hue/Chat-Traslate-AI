@@ -105,7 +105,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
             created_at: msg.created_at,
             id: msg.id
           };
-          await localDb.messages.put({ ...message, chatId: chat.id });
+          await localDb.messages.put({ ...message, group_id: chat.id });
           
           // Automatic Translation & Storage Logic
           // We save translations to DB so other devices read them directly

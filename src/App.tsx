@@ -165,20 +165,42 @@ export default function App() {
 
     const handleInvite = async () => {
       try {
-        const { data: existingChats, error: chatError } = await supabase
-          .from('chats')
-          .select('*')
-          .contains('participants', [profile.uid]);
+        const { data: memberData, error: memberError } = await supabase
+          .from('members')
+          .select('group_id')
+          .eq('user_id', profile.uid);
 
-        if (chatError) throw chatError;
+        if (memberError || !memberData) throw memberError;
 
-        const existingChat = existingChats.find(d => 
-          (d.participants as string[]).includes(inviteUid)
+        const groupIds = memberData.map(m => m.group_id);
+        
+        // Find if any group has the inviteUid as a member
+        const { data: existingGroups, error: groupsError } = await supabase
+          .from('groups')
+          .select(`
+            *,
+            members(user_id)
+          `)
+          .in('id', groupIds)
+          .eq('is_group', false);
+
+        if (groupsError) throw groupsError;
+
+        const existingGroup = existingGroups?.find(g => 
+          g.members.some((m: any) => m.user_id === inviteUid)
         );
 
-        if (existingChat) {
-          const chatData = { ...existingChat };
-          
+        if (existingGroup) {
+          const chatData: Chat = {
+            id: existingGroup.id,
+            participants: [profile.uid, inviteUid],
+            lastMessage: existingGroup.last_message,
+            lastMessageSenderId: existingGroup.last_message_sender_id,
+            updated_at: existingGroup.updated_at,
+            isGroup: false,
+            groupName: existingGroup.name,
+            groupPhoto: existingGroup.photo_url
+          };
           const { data: otherProfile, error: profileError } = await supabase
             .from('users')
             .select('*')
@@ -200,19 +222,30 @@ export default function App() {
             .single();
 
           if (!otherUserError && otherUser) {
-            const { data: newChat, error: createError } = await supabase
-              .from('chats')
+            const { data: newGroup, error: createError } = await supabase
+              .from('groups')
               .insert({
-                participants: [profile.uid, inviteUid],
                 updated_at: new Date().toISOString(),
-                lastMessage: ''
+                last_message: '',
+                is_group: false,
+                name: otherUser.username,
+                photo_url: otherUser.photoURL
               })
               .select()
               .single();
 
-            if (!createError && newChat) {
+            if (!createError && newGroup) {
+              await supabase.from('members').insert([
+                { group_id: newGroup.id, user_id: profile.uid },
+                { group_id: newGroup.id, user_id: inviteUid }
+              ]);
+
               setActiveChat({
-                ...newChat,
+                id: newGroup.id,
+                participants: [profile.uid, inviteUid],
+                updated_at: newGroup.updated_at,
+                lastMessage: '',
+                isGroup: false,
                 participantProfiles: {
                   [profile.uid]: profile,
                   [inviteUid]: otherUser
@@ -307,32 +340,47 @@ export default function App() {
       const nativeLanguage = profile.nativeLanguage;
 
       const channel = supabase
-        .channel('public:chats')
+        .channel('public:groups')
         .on(
           'postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'chats' },
-          (payload) => {
-            const chatData = payload.new as Chat;
-            if (!chatData.participants.includes(profileUid)) return;
+          { event: 'UPDATE', schema: 'public', table: 'groups' },
+          async (payload) => {
+            const groupData = payload.new as any;
+            
+            // Check membership
+            const { data: member } = await supabase
+              .from('members')
+              .select('*')
+              .eq('group_id', groupData.id)
+              .eq('user_id', profileUid)
+              .single();
 
-            const lastUpdated = new Date(chatData.updated_at).getTime();
+            if (!member) return;
+
+            const lastUpdated = new Date(groupData.updated_at).getTime();
             
             if (
-              chatData.lastMessageSenderId && 
-              chatData.lastMessageSenderId !== profileUid &&
-              activeChat?.id !== chatData.id &&
+              groupData.last_message_sender_id && 
+              groupData.last_message_sender_id !== profileUid &&
+              activeChat?.id !== groupData.id &&
               lastUpdated > sessionStartTime
             ) {
-              const senderProfile = chatData.participantProfiles?.[chatData.lastMessageSenderId];
-              const title = chatData.isGroup 
-                ? `${chatData.groupName} (${senderProfile?.username || 'Usuario'})`
+              // Get sender profile (this part might need fetching if not in cache)
+              let senderProfile = activeChat?.participantProfiles?.[groupData.last_message_sender_id];
+              if (!senderProfile) {
+                const { data: p } = await supabase.from('users').select('*').eq('uid', groupData.last_message_sender_id).single();
+                senderProfile = p;
+              }
+
+              const title = groupData.is_group 
+                ? `${groupData.name} (${senderProfile?.username || 'Usuario'})`
                 : (senderProfile?.username || 'ChatTranslate');
               
               showNotification(
                 title,
-                chatData.lastMessage || 'Has recibido un nuevo mensaje',
+                groupData.last_message || 'Has recibido un nuevo mensaje',
                 nativeLanguage,
-                chatData.isGroup ? chatData.groupPhoto : senderProfile?.photoURL
+                groupData.is_group ? groupData.photo_url : senderProfile?.photoURL
               );
             }
           }
