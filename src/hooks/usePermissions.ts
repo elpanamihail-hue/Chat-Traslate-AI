@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { requestNotificationPermission } from '../lib/notifications';
-import { auth } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 
 export type PermissionStatus = 'prompt' | 'granted' | 'denied' | 'loading';
 
@@ -46,7 +46,8 @@ export function usePermissions() {
   const requestAll = async () => {
     // Step 1: Push Notifications (Elegant & Sequential)
     try {
-      const userUid = auth.currentUser?.uid;
+      const { data: { session } } = await supabase.auth.getSession();
+      const userUid = session?.user?.id;
       const granted = await requestNotificationPermission(userUid);
       setNotifications(granted ? 'granted' : Notification.permission as any);
     } catch (e) {
