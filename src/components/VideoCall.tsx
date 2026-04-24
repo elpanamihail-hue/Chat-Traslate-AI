@@ -541,45 +541,46 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
           </div>
         )}
 
-        {/* Subtitles Overlay */}
-        <div className="absolute bottom-32 inset-x-0 flex flex-col items-center px-8 z-30 pointer-events-none gap-4">
+        {/* Subtitles Overlay - Dynamic Captions Style */}
+        <div className="absolute bottom-40 inset-x-0 flex flex-col items-center px-8 z-30 pointer-events-none">
           <AnimatePresence>
-            {/* My Subtitles (Transcription of local user) */}
+            {/* Remote Subtitles (Main Captions) */}
+            {remoteSubtitles && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="bg-black/80 backdrop-blur-md px-6 py-3 rounded-2xl border border-white/10 max-w-3xl text-center shadow-[0_0_50px_rgba(0,0,0,0.5)]"
+              >
+                <div className="flex items-center gap-2 mb-1.5 justify-center opacity-60">
+                   <Globe className={cn("w-3 h-3 text-w-accent", isTranslating && "animate-spin")} />
+                   <span className="text-[9px] font-black uppercase tracking-[0.3em] text-white">
+                     {remoteName} • AI CAPTIONS
+                   </span>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                   {/* Original text (small, for context) */}
+                   <p className="text-gray-400 text-[10px] italic line-clamp-1 opacity-50">
+                     {remoteSubtitles}
+                   </p>
+                   {/* Translated text (The actual subtitle) */}
+                   <p className="text-white text-xl md:text-2xl font-black leading-tight tracking-tight drop-shadow-lg">
+                     {translatedSubtitles || "..."}
+                   </p>
+                </div>
+              </motion.div>
+            )}
+
+            {/* My Subtitles (Transcription of local user - smaller) */}
             {mySubtitles && (
               <motion.div 
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                className="bg-black/30 backdrop-blur-sm px-4 py-2 rounded-xl border border-white/5 max-w-xl text-center"
+                className="mt-4 bg-white/10 backdrop-blur-sm px-4 py-1.5 rounded-full border border-white/5"
               >
-                <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mb-1">{t('Tú', lang)}</p>
-                <p className="text-white text-sm opacity-80 italic">"{mySubtitles}"</p>
-              </motion.div>
-            )}
-
-            {/* Remote Subtitles (Transcription of other user) */}
-            {remoteSubtitles && (
-              <motion.div 
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                className="bg-black/60 backdrop-blur-lg px-6 py-4 rounded-2xl border border-w-accent/20 max-w-2xl text-center shadow-2xl"
-              >
-                <div className="flex items-center gap-2 mb-2 justify-center">
-                  <Globe className={cn("w-3 h-3 text-w-accent", isTranslating && "animate-spin")} />
-                  <span className="text-[10px] text-w-accent font-black uppercase tracking-[0.2em]">{remoteName} • {t('Traduciendo', lang)}</span>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                   {/* Original remote text (dimmed) */}
-                   <p className="text-gray-400 text-xs italic line-clamp-1">
-                     {remoteSubtitles}
-                   </p>
-                   {/* Translated text (main) */}
-                   <p className="text-white text-lg md:text-xl font-bold leading-tight tracking-tight">
-                     {translatedSubtitles || "..."}
-                   </p>
-                </div>
+                <p className="text-white/60 text-[10px] font-medium italic">"{mySubtitles}"</p>
               </motion.div>
             )}
           </AnimatePresence>

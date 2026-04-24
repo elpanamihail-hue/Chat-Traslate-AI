@@ -75,7 +75,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
   }, [otherUser?.uid]);
 
   useEffect(() => {
-    // Delta Sync Logic
+    // Delta Sync Logic with Redundancy Protection
     const loadDelta = async () => {
       // Find latest message timestamp in local storage
       const lastMsgs = await localDb.messages
@@ -96,6 +96,10 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
 
       if (!error && newMsgs) {
         for (const msg of newMsgs) {
+          // Double check by ID to prevent duplicates if created_at matches exactly
+          const exists = await localDb.messages.get(msg.id);
+          if (exists) continue;
+
           const message: Message = {
             ...msg,
             created_at: msg.created_at,
@@ -103,17 +107,22 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
           };
           await localDb.messages.put({ ...message, chatId: chat.id });
           
-          // Automatic Translation logic
+          // Automatic Translation & Storage Logic
+          // We save translations to DB so other devices read them directly
           if (message.senderId !== profile.uid && message.text && !message.translations?.[profile.nativeLanguage]) {
             if (message.originalLanguage && message.originalLanguage !== profile.nativeLanguage) {
                try {
                  const translated = await translateText(message.text, profile.nativeLanguage);
+                 const updatedTranslations = { ...message.translations, [profile.nativeLanguage]: translated };
+                 
+                 // Persist translation to central DB to save credits for other participants
                  await supabase
                    .from('messages')
-                   .update({
-                     translations: { ...message.translations, [profile.nativeLanguage]: translated }
-                   })
+                   .update({ translations: updatedTranslations })
                    .eq('id', message.id);
+
+                 // Update local DB too
+                 await localDb.messages.update(message.id, { translations: updatedTranslations });
                } catch (e) {
                  console.error("Translation error:", e);
                }
@@ -130,6 +139,8 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
           { event: '*', schema: 'public', table: 'messages', filter: `chatId=eq.${chat.id}` },
           async (payload) => {
             const rawMsg = payload.new as any;
+            if (!rawMsg || !rawMsg.id) return;
+
             const message: Message = {
               ...rawMsg,
               created_at: rawMsg.created_at,
@@ -137,6 +148,10 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
             };
 
             if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const existing = await localDb.messages.get(message.id);
+              // Avoid re-rendering/re-processing if it already exists and hasn't changed significantly
+              if (payload.eventType === 'INSERT' && existing) return;
+              
               await localDb.messages.put({ ...message, chatId: chat.id });
             }
           }

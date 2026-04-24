@@ -29,7 +29,14 @@ export default function Login() {
       if (error) throw error;
     } catch (error: any) {
       console.error("Login failed:", error);
-      alert("Error: Asegúrate de que el proveedor de Google esté activado en Supabase (Authentication -> Settings -> Providers).");
+      // Detailed error messages for common issues
+      if (error.message?.includes('provider is not enabled')) {
+        alert("ERROR: El proveedor Google no está activado en Supabase. Ve a Authentication -> Providers -> Google y actívalo.");
+      } else if (error.status === 403 || error.message?.includes('403')) {
+        alert("ERROR 403: Revisa en Google Cloud Console que la URL de redirección de Supabase esté en la lista oficial de 'Redirect URIs'.");
+      } else {
+        alert("Error: " + error.message);
+      }
     }
   };
 
