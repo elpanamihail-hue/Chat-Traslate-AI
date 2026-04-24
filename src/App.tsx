@@ -39,7 +39,16 @@ export default function App() {
   const [activeCall, setActiveCall] = useState<{peerId: string, remoteName: string, callId?: string, type?: 'video' | 'voice', isCaller?: boolean} | null>(null);
   const [incomingCall, setIncomingCall] = useState<any>(null);
   const [sessionStartTime] = useState(Date.now());
-  const [sessionSetupDone, setSessionSetupDone] = useState(false);
+  const [sessionSetupDone, setSessionSetupDone] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('user_profile_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return !!parsed.setupComplete;
+      }
+    }
+    return false;
+  });
   const [showPermissionModal, setShowPermissionModal] = useState(false);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
 
@@ -461,9 +470,9 @@ export default function App() {
     return <Login />;
   }
 
-  // Handle immediate permission trigger for users who haven't completed setup
-  // SKIP if profile is already complete
-  if (!profile?.setupComplete) {
+  // Optimized Navigation Logic: Jump directly to chat if profile is complete
+  if (!profile || !profile.setupComplete) {
+    // Show permissions wizard only if not done in this session
     if (!sessionSetupDone) {
       return (
         <SetupWizard 
@@ -472,7 +481,8 @@ export default function App() {
       );
     }
 
-    if (!profile && !fetchingProfile) {
+    // Show onboarding if profile is missing or incomplete
+    if (!fetchingProfile) {
       return <Onboarding user={user} />;
     }
   }

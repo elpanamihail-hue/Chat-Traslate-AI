@@ -56,10 +56,10 @@ export default function Onboarding({ user }: Props) {
 
       const { error: userError } = await supabase
         .from('usernames')
-        .insert({ username: username.toLowerCase(), uid: user.id });
+        .upsert({ username: username.toLowerCase(), uid: user.id });
 
       if (userError) {
-        console.error('Error detallado de Supabase (usernames insert):', userError);
+        console.error('Error detallado de Supabase (usernames upsert):', userError);
         throw userError;
       }
 

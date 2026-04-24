@@ -67,6 +67,7 @@ export default function Settings({ profile, onClose }: Props) {
       }
 
       const updates = {
+        uid: profile.uid,
         username: username,
         nativeLanguage: language,
         theme: theme,
@@ -75,8 +76,7 @@ export default function Settings({ profile, onClose }: Props) {
 
       const { error } = await supabase
         .from('users')
-        .update(updates)
-        .eq('uid', profile.uid);
+        .upsert(updates);
       
       if (error) throw error;
 
