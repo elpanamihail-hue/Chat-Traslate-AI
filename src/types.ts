@@ -4,12 +4,12 @@ export interface UserProfile {
   photoURL: string;
   nativeLanguage: string;
   email: string;
-  updatedAt: any;
+  updated_at: string;
   fcmToken?: string;
   theme?: 'light' | 'dark' | 'worldcup';
   setupComplete?: boolean;
   status?: 'online' | 'offline';
-  lastChanged?: any;
+  lastChanged?: string;
 }
 
 export interface Chat {
@@ -17,7 +17,7 @@ export interface Chat {
   participants: string[];
   lastMessage?: string;
   lastMessageSenderId?: string;
-  updatedAt: any;
+  updated_at: string;
   participantProfiles?: { [uid: string]: UserProfile };
   isGroup?: boolean;
   groupName?: string;
@@ -36,5 +36,6 @@ export interface Message {
   fileName?: string;
   audioUrl?: string;
   audioDuration?: number;
-  createdAt: any;
+  created_at: string;
+  readBy?: string[];
 }

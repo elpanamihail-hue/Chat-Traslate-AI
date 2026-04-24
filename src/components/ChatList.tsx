@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, onSnapshot, getDocs, doc, getDoc, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { UserProfile, Chat } from '../types';
 import { Search, MoreVertical, MessageSquarePlus, UserPlus, CheckCheck, Share2, ClipboardCheck, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
 import StatusIndicator from './StatusIndicator';
 import CreateGroupModal from './CreateGroupModal';
 import { AnimatePresence } from 'motion/react';
+import { localDb } from '../lib/db';
+import { t } from '../lib/i18n';
 
 interface Props {
   profile: UserProfile;
@@ -14,8 +15,6 @@ interface Props {
   activeChatId?: string;
   onOpenSettings: () => void;
 }
-
-import { t } from '../lib/i18n';
 
 export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSettings }: Props) {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -34,47 +33,80 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
     setTimeout(() => setShowInviteToast(false), 2000);
   };
 
+  // WhatsApp-style cache loading
   useEffect(() => {
-    const q = query(
-      collection(db, 'chats'),
-      where('participants', 'array-contains', profile.uid),
-      orderBy('updatedAt', 'desc')
-    );
+    const loadCachedChats = async () => {
+      const cachedChats = await localDb.chats.reverse().sortBy('updated_at');
+      if (cachedChats.length > 0) {
+        setChats(cachedChats);
+      }
+    };
+    loadCachedChats();
+  }, []);
 
-    const unsub = onSnapshot(q, (snapshot) => {
-      const loadProfiles = async () => {
-        try {
-          const chatsData: Chat[] = [];
-          for (const d of snapshot.docs) {
-            const data = d.data() as Chat;
-            const chatWithId = { ...data, id: d.id };
-            
-            // Legacy support: fetch participant profiles if missing in chat doc
-            if (!data.participantProfiles && !data.isGroup) {
-              const otherId = data.participants.find(p => p !== profile.uid);
-              if (otherId) {
-                const userDoc = await getDoc(doc(db, 'users', otherId));
-                if (userDoc.exists()) {
-                  chatWithId.participantProfiles = {
-                    [profile.uid]: profile,
-                    [otherId]: userDoc.data() as UserProfile
-                  };
+  useEffect(() => {
+    const fetchChats = async () => {
+      const { data, error } = await supabase
+        .from('chats')
+        .select('*')
+        .contains('participants', [profile.uid])
+        .order('updated_at', { ascending: false });
+
+      if (!error && data) {
+        const enrichedChats = await Promise.all(data.map(async (chat) => {
+          if (!chat.participantProfiles && !chat.isGroup) {
+            const otherId = chat.participants.find((p: string) => p !== profile.uid);
+            if (otherId) {
+              let otherProfile = await localDb.profiles.get(otherId);
+              if (!otherProfile) {
+                const { data: profileData } = await supabase
+                  .from('users')
+                  .select('*')
+                  .eq('uid', otherId)
+                  .single();
+                if (profileData) {
+                  otherProfile = profileData;
+                  await localDb.profiles.put(otherProfile);
                 }
               }
+              chat.participantProfiles = {
+                [profile.uid]: profile,
+                [otherId]: otherProfile
+              };
             }
-            chatsData.push(chatWithId);
           }
-          setChats(chatsData);
-        } catch (err) {
-          console.error("Error processing chats:", err);
-        }
-      };
-      loadProfiles();
-    }, (err) => {
-      console.error("Chat list snapshot error:", err);
-    });
+          // Save to local cache
+          await localDb.chats.put(chat);
+          return chat;
+        }));
+        setChats(enrichedChats);
+      }
+    };
 
-    return () => unsub();
+    fetchChats();
+
+    // Real-time subscription for chat updates
+    const channel = supabase
+      .channel('chat-updates')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'chats' },
+        (payload) => {
+          const newChat = payload.new as Chat;
+          if (newChat.participants && newChat.participants.includes(profile.uid)) {
+            setChats(prev => {
+              const filtered = prev.filter(c => c.id !== newChat.id);
+              return [newChat, ...filtered];
+            });
+            localDb.chats.put(newChat);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [profile.uid]);
 
   const handleSearch = async (term: string) => {
@@ -84,20 +116,19 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
       return;
     }
 
-    const q = query(
-      collection(db, 'users'),
-      where('username', '>=', term),
-      where('username', '<=', term + '\uf8ff')
-    );
-    const snap = await getDocs(q);
-    const results = snap.docs
-      .map(d => d.data() as UserProfile)
-      .filter(u => u.uid !== profile.uid);
-    setSearchResults(results);
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .ilike('username', `%${term}%`)
+      .neq('uid', profile.uid)
+      .limit(10);
+    
+    if (!error && data) {
+      setSearchResults(data);
+    }
   };
 
   const startChat = async (otherUser: UserProfile) => {
-    // Check if chat exists
     const existing = chats.find(c => c.participants.includes(otherUser.uid));
     if (existing) {
       onChatSelect(existing);
@@ -106,26 +137,32 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
       return;
     }
 
-    const newChatRef = await addDoc(collection(db, 'chats'), {
-      participants: [profile.uid, otherUser.uid],
-      participantProfiles: {
-        [profile.uid]: profile,
-        [otherUser.uid]: otherUser
-      },
-      updatedAt: serverTimestamp(),
-      lastMessage: '',
-      isGroup: false
-    });
+    const { data, error } = await supabase
+      .from('chats')
+      .insert({
+        participants: [profile.uid, otherUser.uid],
+        participantProfiles: {
+          [profile.uid]: profile,
+          [otherUser.uid]: otherUser
+        },
+        updated_at: new Date().toISOString(),
+        lastMessage: '',
+        isGroup: false
+      })
+      .select()
+      .single();
 
-    onChatSelect({
-      id: newChatRef.id,
-      participants: [profile.uid, otherUser.uid],
-      updatedAt: new Date(),
-      participantProfiles: {
-        [profile.uid]: profile,
-        [otherUser.uid]: otherUser
-      }
-    });
+    if (!error && data) {
+      const enrichedChat = {
+        ...data,
+        participantProfiles: {
+          [profile.uid]: profile,
+          [otherUser.uid]: otherUser
+        }
+      };
+      await localDb.chats.put(enrichedChat);
+      onChatSelect(enrichedChat);
+    }
 
     setIsSearching(false);
     setSearchTerm('');
@@ -143,7 +180,7 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
               className="w-10 h-10 rounded-full border border-white/10"
               referrerPolicy="no-referrer"
             />
-            <StatusIndicator uid={profile.uid} className="border-w-header" />
+            <StatusIndicator status={profile.status} className="border-w-header" />
           </div>
           <div className="flex flex-col leading-none">
             <span className="font-semibold text-w-text text-sm">{profile.username}</span>
@@ -248,13 +285,13 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
                 >
                   <div className="relative shrink-0">
                     <img src={chat.isGroup ? chat.groupPhoto : otherUser?.photoURL} alt={chat.isGroup ? chat.groupName : otherUser?.username} className="w-12 h-12 rounded-full border border-white/5" referrerPolicy="no-referrer" />
-                    {!chat.isGroup && otherUser && <StatusIndicator uid={otherUser.uid} className="border-w-sidebar" />}
+                    {!chat.isGroup && otherUser && <StatusIndicator status={otherUser.status} className="border-w-sidebar" />}
                   </div>
                   <div className="flex-1 flex flex-col min-w-0">
                     <div className="flex justify-between items-center mb-0.5">
                       <h3 className="font-medium text-w-text truncate">{chat.isGroup ? chat.groupName : (otherUser?.username || 'Chat')}</h3>
                       <span className="text-[10px] text-w-muted">
-                        {chat.updatedAt?.toDate ? chat.updatedAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
+                        {chat.updated_at ? new Date(chat.updated_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
                       </span>
                     </div>
                     <p className="text-sm text-w-muted truncate">

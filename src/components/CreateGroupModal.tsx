@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { useState } from 'react';
+import { supabase } from '../lib/supabase';
 import { UserProfile } from '../types';
 import { X, Search, Users, Check, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -31,16 +30,16 @@ export default function CreateGroupModal({ profile, lang, onClose, onGroupCreate
 
     setIsSearching(true);
     try {
-      const q = query(
-        collection(db, 'users'),
-        where('username', '>=', term),
-        where('username', '<=', term + '\uf8ff')
-      );
-      const snap = await getDocs(q);
-      const results = snap.docs
-        .map(d => d.data() as UserProfile)
-        .filter(u => u.uid !== profile.uid);
-      setSearchResults(results);
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .ilike('username', `%${term}%`)
+        .neq('uid', profile.uid)
+        .limit(10);
+      
+      if (!error && data) {
+        setSearchResults(data);
+      }
     } finally {
       setIsSearching(false);
     }
@@ -65,18 +64,24 @@ export default function CreateGroupModal({ profile, lang, onClose, onGroupCreate
         ...selectedUsers.reduce((acc, u) => ({ ...acc, [u.uid]: u }), {})
       };
 
-      const newChatRef = await addDoc(collection(db, 'chats'), {
-        participants,
-        participantProfiles,
-        isGroup: true,
-        groupName: groupName.trim(),
-        createdBy: profile.uid,
-        updatedAt: serverTimestamp(),
-        lastMessage: '',
-        groupPhoto: `https://ui-avatars.com/api/?name=${encodeURIComponent(groupName)}&background=25D366&color=fff`
-      });
+      const { data, error } = await supabase
+        .from('chats')
+        .insert({
+          participants,
+          participantProfiles,
+          isGroup: true,
+          groupName: groupName.trim(),
+          createdBy: profile.uid,
+          updated_at: new Date().toISOString(),
+          lastMessage: '',
+          groupPhoto: `https://ui-avatars.com/api/?name=${encodeURIComponent(groupName)}&background=25D366&color=fff`
+        })
+        .select()
+        .single();
 
-      onGroupCreated(newChatRef.id);
+      if (!error && data) {
+        onGroupCreated(data.id);
+      }
     } catch (error) {
       console.error("Error creating group:", error);
     } finally {

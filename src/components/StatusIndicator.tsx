@@ -4,24 +4,29 @@ import { db } from '../lib/firebase';
 import { cn } from '../lib/utils';
 
 interface Props {
-  uid: string;
+  uid?: string;
+  status?: 'online' | 'offline';
   className?: string;
 }
 
-export default function StatusIndicator({ uid, className }: Props) {
-  const [status, setStatus] = useState<'online' | 'offline'>('offline');
+export default function StatusIndicator({ uid, status: initialStatus, className }: Props) {
+  const [status, setStatus] = useState<'online' | 'offline'>(initialStatus || 'offline');
 
   useEffect(() => {
+    if (initialStatus) {
+      setStatus(initialStatus);
+      return;
+    }
+    if (!uid) return;
+
     const unsub = onSnapshot(doc(db, 'users', uid), (docSnap) => {
       if (docSnap.exists()) {
         setStatus(docSnap.data().status || 'offline');
       }
-    }, (error) => {
-      console.error("Status indicator snapshot error:", error);
     });
 
     return () => unsub();
-  }, [uid]);
+  }, [uid, initialStatus]);
 
   return (
     <div 

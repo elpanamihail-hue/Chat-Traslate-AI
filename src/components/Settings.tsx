@@ -1,14 +1,13 @@
 import { useState } from 'react';
-import { doc, updateDoc, getDoc } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { UserProfile } from '../types';
 import { LANGUAGES } from '../languages';
 import { Check, X, LogOut, Globe, User, Shield, Bell, HelpCircle, ChevronLeft, Sun, Moon, Mic, Video, MoreVertical, Trophy } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
 import { usePermissions } from '../hooks/usePermissions';
-
 import { requestNotificationPermission } from '../lib/notifications';
+import { t } from '../lib/i18n';
 
 interface Props {
   profile: UserProfile;
@@ -20,8 +19,6 @@ function StatusIcon({ status }: { status: string }) {
   if (status === 'denied') return <span className="text-red-500 text-lg">❌</span>;
   return <div className="w-4 h-4 rounded-full border-2 border-w-muted border-t-transparent animate-spin"></div>;
 }
-
-import { t } from '../lib/i18n';
 
 export default function Settings({ profile, onClose }: Props) {
   const [username, setUsername] = useState(profile.username);
@@ -53,22 +50,42 @@ export default function Settings({ profile, onClose }: Props) {
     try {
       // If username changed, check uniqueness
       if (username !== profile.username) {
-        const nameDoc = await getDoc(doc(db, 'usernames', username.toLowerCase()));
-        if (nameDoc.exists()) {
+        const { data: nameData } = await supabase
+          .from('usernames')
+          .select('uid')
+          .eq('username', username.toLowerCase())
+          .single();
+        
+        if (nameData) {
            setSaving(false);
            return setMessage('Username ya existe');
         }
+        
         // Update username registry
-        await updateDoc(doc(db, 'usernames', profile.username.toLowerCase()), { uid: null });
-        await updateDoc(doc(db, 'usernames', username.toLowerCase()), { uid: profile.uid });
+        await supabase.from('usernames').delete().eq('username', profile.username.toLowerCase());
+        await supabase.from('usernames').insert({ username: username.toLowerCase(), uid: profile.uid });
       }
 
-      await updateDoc(doc(db, 'users', profile.uid), {
+      const updates = {
         username: username,
         nativeLanguage: language,
         theme: theme,
-        updatedAt: new Date()
-      });
+        updated_at: new Date().toISOString()
+      };
+
+      const { error } = await supabase
+        .from('users')
+        .update(updates)
+        .eq('uid', profile.uid);
+      
+      if (error) throw error;
+
+      // Update local cache
+      const cached = localStorage.getItem('user_profile_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        localStorage.setItem('user_profile_cache', JSON.stringify({ ...parsed, ...updates }));
+      }
 
       setMessage('Ajustes guardados correctamente');
       setTimeout(() => setMessage(''), 3000);
@@ -254,7 +271,7 @@ export default function Settings({ profile, onClose }: Props) {
               {notifStatus === 'granted' ? 'Activadas' : 'Desactivadas'}
             </div>
           </button>
-          <button className="w-full flex items-center justify-between p-5 hover:bg-red-500/10 rounded-2xl transition-all text-red-400 font-bold" onClick={() => auth.signOut()}>
+          <button className="w-full flex items-center justify-between p-5 hover:bg-red-500/10 rounded-2xl transition-all text-red-400 font-bold" onClick={() => supabase.auth.signOut()}>
             <div className="flex items-center gap-4">
               <LogOut className="w-5 h-5" />
               <span>{t('Cerrar sesión', lang)}</span>

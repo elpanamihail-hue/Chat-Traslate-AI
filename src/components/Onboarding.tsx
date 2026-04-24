@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
-import { User } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { LANGUAGES } from '../languages';
 import { Check, Loader2, Globe, User as UserIcon } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface Props {
-  user: User;
+  user: any;
 }
 
 export default function Onboarding({ user }: Props) {
@@ -24,26 +22,44 @@ export default function Onboarding({ user }: Props) {
 
     try {
       // Check if username unique
-      const nameDoc = await getDoc(doc(db, 'usernames', username.toLowerCase()));
-      if (nameDoc.exists()) {
+      const { data: nameData, error: nameError } = await supabase
+        .from('usernames')
+        .select('uid')
+        .eq('username', username.toLowerCase())
+        .single();
+      
+      if (nameData) {
         setLoading(false);
         return setError('Este nombre de usuario ya está en uso');
       }
 
       const profile = {
-        uid: user.uid,
+        uid: user.id,
         username: username,
-        photoURL: user.photoURL || `https://ui-avatars.com/api/?name=${username}`,
+        photoURL: user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${username}`,
         nativeLanguage: language,
         email: user.email || '',
-        updatedAt: new Date(),
+        updated_at: new Date().toISOString(),
         setupComplete: true,
       };
 
-      await setDoc(doc(db, 'users', user.uid), profile);
-      await setDoc(doc(db, 'usernames', username.toLowerCase()), { uid: user.uid });
+      // Cache locally
+      localStorage.setItem('user_profile_cache', JSON.stringify(profile));
+
+      // Save to Supabase
+      const { error: profileError } = await supabase
+        .from('users')
+        .upsert(profile);
       
-    } catch (err) {
+      if (profileError) throw profileError;
+
+      const { error: userError } = await supabase
+        .from('usernames')
+        .insert({ username: username.toLowerCase(), uid: user.id });
+
+      if (userError) throw userError;
+      
+    } catch (err: any) {
       console.error(err);
       setError('Error al guardar el perfil. Intenta de nuevo.');
       setLoading(false);

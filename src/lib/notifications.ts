@@ -1,6 +1,4 @@
-import { getToken } from 'firebase/messaging';
-import { messaging, db } from './firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { supabase } from './supabase';
 import { translateText } from '../services/ai';
 
 export const requestNotificationPermission = async (userUid?: string) => {
@@ -33,31 +31,16 @@ const registerServiceWorker = async () => {
 };
 
 const setupFCM = async (uid: string) => {
-  try {
-    const fcm = await messaging();
-    if (!fcm) return;
-
-    const registration = await navigator.serviceWorker.getRegistration();
-    if (!registration) return;
-
-    const token = await getToken(fcm, {
-      serviceWorkerRegistration: registration,
-      vapidKey: import.meta.env.VITE_FCM_VAPID_KEY
-    });
-
-    if (token) {
-      await updateDoc(doc(db, 'users', uid), { fcmToken: token });
-    }
-  } catch (err) {
-    console.warn('Error al configurar FCM:', err);
-  }
+  // Push notifications currently bypassed during Supabase migration
+  // Placeholder for future Push service (OneSignal / WebPush)
+  console.log('FCM setup bypassed for Supabase migration');
 };
 
 /**
  * Shows a standard message notification with automatic translation if needed.
  */
 export const showNotification = async (title: string, body: string, targetLanguage?: string, icon?: string) => {
-  if (Notification.permission !== 'granted') return;
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
 
   let textToShow = body;
   if (targetLanguage) {
@@ -91,7 +74,7 @@ export const showNotification = async (title: string, body: string, targetLangua
  * Shows a high-priority call notification with action buttons and persistent vibration.
  */
 export const showCallNotification = async (callerName: string, callId: string, type: 'video' | 'voice' = 'video', icon?: string) => {
-  if (Notification.permission !== 'granted') return;
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
 
   const title = `Llamada de ${type === 'video' ? 'Video' : 'Voz'} Entrante`;
   const body = `${callerName} te está llamando...`;

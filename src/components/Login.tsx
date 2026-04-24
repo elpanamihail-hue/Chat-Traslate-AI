@@ -1,17 +1,13 @@
-import { signInWithPopup } from 'firebase/auth';
-import { auth, googleProvider } from '../lib/firebase';
-import { LogIn, MessageSquare, Globe, Video, ShieldCheck } from 'lucide-react';
+import React, { useState } from 'react';
+import { supabase } from '../lib/supabase';
+import { Globe, Video, ShieldCheck, Mail, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { t } from '../lib/i18n';
 
 export default function Login() {
-  const handleLogin = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (error) {
-      console.error("Login failed:", error);
-    }
-  };
+  const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
 
   // Guess language from browser
   const browserLang = typeof navigator !== 'undefined' ? navigator.language : 'en';
@@ -21,6 +17,41 @@ export default function Login() {
                browserLang.startsWith('de') ? 'German' :
                browserLang.startsWith('it') ? 'Italian' :
                browserLang.startsWith('pt') ? 'Portuguese' : 'English';
+
+  const handleGoogleLogin = async () => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin,
+        },
+      });
+      if (error) throw error;
+    } catch (error: any) {
+      console.error("Login failed:", error);
+      alert("Error: Asegúrate de que el proveedor de Google esté activado en Supabase (Authentication -> Settings -> Providers).");
+    }
+  };
+
+  const handleEmailLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage('');
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          emailRedirectTo: window.location.origin,
+        }
+      });
+      if (error) throw error;
+      setMessage('¡Revisa tu correo! Te hemos enviado un enlace de acceso.');
+    } catch (error: any) {
+      setMessage('Error: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen w-screen flex flex-col items-center justify-center bg-w-bg font-sans p-6 relative overflow-hidden">
@@ -48,13 +79,56 @@ export default function Login() {
           </p>
         </div>
 
-        <button
-          onClick={handleLogin}
-          className="w-full bg-white text-black py-4 rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-xl hover:bg-gray-100 transition-all flex items-center justify-center gap-4 active:scale-[0.98]"
-        >
-          <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5 flex-shrink-0" referrerPolicy="no-referrer" />
-          {t('Continuar con Google', lang)}
-        </button>
+        <div className="space-y-6">
+          <form onSubmit={handleEmailLogin} className="space-y-4">
+            <div>
+              <label className="block text-[10px] font-bold text-w-muted uppercase tracking-widest mb-2 pl-1">
+                Entrar por correo (Recomendado)
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-w-muted" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="ejemplo@email.com"
+                  className="w-full bg-white/5 border border-white/10 text-w-text pl-12 pr-4 py-4 rounded-2xl focus:ring-2 focus:ring-w-accent/50 outline-none transition-all text-sm"
+                  required
+                />
+              </div>
+            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-w-accent hover:bg-opacity-90 text-w-bg font-bold py-4 rounded-2xl transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-50 text-sm uppercase tracking-wider"
+            >
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Enviar enlace de acceso'}
+            </button>
+          </form>
+
+          {message && (
+            <p className="text-center text-[11px] text-w-accent bg-w-accent/10 py-3 px-4 rounded-xl border border-w-accent/20">
+              {message}
+            </p>
+          )}
+
+          <div className="relative py-2">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-white/5"></div>
+            </div>
+            <div className="relative flex justify-center text-[10px] uppercase font-bold tracking-widest text-w-muted">
+              <span className="bg-w-sidebar px-4">O continuar con</span>
+            </div>
+          </div>
+
+          <button
+            onClick={handleGoogleLogin}
+            className="w-full bg-white/5 border border-white/10 text-w-text py-4 rounded-2xl font-bold uppercase text-xs tracking-wider shadow-lg hover:bg-white/10 transition-all flex items-center justify-center gap-4 active:scale-[0.98]"
+          >
+            <img src="https://www.google.com/favicon.ico" alt="Google" className="w-4 h-4 flex-shrink-0" referrerPolicy="no-referrer" />
+            Google
+          </button>
+        </div>
 
         <div className="mt-12 pt-8 border-t border-white/5 text-center">
            <div className="flex justify-center gap-6 mb-4">
@@ -63,7 +137,7 @@ export default function Login() {
               <ShieldCheck className="w-5 h-5 text-w-muted hover:text-w-accent" />
            </div>
            <p className="text-[10px] text-w-muted font-mono uppercase tracking-widest opacity-50">
-             Build v1.0.4 • Secure Protocol Active
+             Secure Session • Powered by Supabase
            </p>
         </div>
       </motion.div>

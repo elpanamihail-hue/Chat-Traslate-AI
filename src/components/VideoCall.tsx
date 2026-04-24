@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { doc, onSnapshot, updateDoc, collection, addDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { UserProfile } from '../types';
 import { translateText } from '../services/ai';
 import { 
@@ -9,6 +8,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { t } from '../lib/i18n';
 
 interface Props {
   profile: UserProfile;
@@ -19,8 +19,6 @@ interface Props {
   type?: 'video' | 'voice';
   onClose: () => void;
 }
-
-import { t } from '../lib/i18n';
 
 export default function VideoCall({ profile, remotePeerId, remoteName, callId, isCaller, type = 'video', onClose }: Props) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -36,10 +34,6 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [callStatus, setCallStatus] = useState<'ringing' | 'accepted' | 'declined' | 'ended'>('ringing');
   
-  const [remoteMuted, setRemoteMuted] = useState(false);
-  const [remoteVideoOff, setRemoteVideoOff] = useState(false);
-  const [reconnectAttempts, setReconnectAttempts] = useState(0);
-  
   const lang = profile.nativeLanguage;
   
   const containerRef = useRef<HTMLDivElement>(null);
@@ -51,7 +45,6 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
   const recognitionRef = useRef<any>(null);
   const isRecognitionActiveRef = useRef(false);
   const subtitleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const reconnectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Call Duration Timer
   useEffect(() => {
@@ -71,39 +64,42 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
   };
 
   useEffect(() => {
-    // Listener for Call Status in Firestore
+    // Listener for Call Status in Supabase
     if (callId) {
-      const unsub = onSnapshot(doc(db, 'calls', callId), (docSnap) => {
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setCallStatus(data.status);
-          
-          // Media sync
-          if (isCaller) {
-            setRemoteMuted(data.recipientMuted ?? false);
-            setRemoteVideoOff(data.recipientVideoOff ?? false);
-          } else {
-            setRemoteMuted(data.callerMuted ?? false);
-            setRemoteVideoOff(data.callerVideoOff ?? false);
-          }
-
-          if (data.status === 'declined' || data.status === 'ended') {
-            if (document.fullscreenElement) {
-              document.exitFullscreen().catch(() => {});
+      const channel = supabase
+        .channel(`call-status-${callId}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'calls', filter: `id=eq.${callId}` },
+          (payload) => {
+            const data = payload.new as any;
+            if (!data) {
+              if (document.fullscreenElement) {
+                document.exitFullscreen().catch(() => {});
+              }
+              onClose();
+              return;
             }
-            onClose();
+            const status = data.status;
+            setCallStatus(status);
+            if (status === 'declined' || status === 'ended') {
+              if (document.fullscreenElement) {
+                document.exitFullscreen().catch(() => {});
+              }
+              onClose();
+            }
           }
-        } else {
-          if (document.fullscreenElement) {
-            document.exitFullscreen().catch(() => {});
-          }
-          onClose(); // Doc deleted
-        }
-      }, (error) => {
-        console.error("Call status snapshot error:", error);
-        onClose();
+        )
+        .subscribe();
+
+      // Initial fetch
+      supabase.from('calls').select('status').eq('id', callId).single().then(({ data }) => {
+        if (data) setCallStatus(data.status);
       });
-      return () => unsub();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
   }, [callId, onClose]);
 
@@ -124,47 +120,23 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
     const initCall = async () => {
       if (!callId) return;
 
-      const configuration: RTCConfiguration = {
+      const configuration = {
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-          { urls: 'stun:stun3.l.google.com:19302' },
-          { urls: 'stun:stun4.l.google.com:19302' },
         ],
-        iceCandidatePoolSize: 10,
       };
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: type === 'video' ? {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            frameRate: { max: 30 }
-          } : false,
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          }
+          video: type === 'video',
+          audio: true
         });
         setLocalStream(stream);
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
 
         const pc = new RTCPeerConnection(configuration);
         pcRef.current = pc;
-
-        pc.oniceconnectionstatechange = () => {
-          console.log('ICE Connection State:', pc.iceConnectionState);
-          if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
-            startReconnectionCountdown();
-          } else if (pc.iceConnectionState === 'connected') {
-            if (reconnectionTimeoutRef.current) {
-              clearTimeout(reconnectionTimeoutRef.current);
-              setReconnectAttempts(0);
-            }
-          }
-        };
 
         // Add local tracks to peer connection
         stream.getTracks().forEach(track => pc.addTrack(track, stream));
@@ -182,58 +154,89 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
           pc.ondatachannel = (event) => setupDataChannel(event.channel);
         }
 
-        // Signaling logic
-        const callDoc = doc(db, 'calls', callId);
-        const callerCandidatesCollection = collection(callDoc, 'callerCandidates');
-        const recipientCandidatesCollection = collection(callDoc, 'recipientCandidates');
-
-        pc.onicecandidate = (event) => {
+        // Signaling logic using separate tables for candidates
+        pc.onicecandidate = async (event) => {
           if (event.candidate) {
-            addDoc(isCaller ? callerCandidatesCollection : recipientCandidatesCollection, event.candidate.toJSON());
+            const table = isCaller ? 'caller_candidates' : 'recipient_candidates';
+            await supabase.from(table).insert({
+              call_id: callId,
+              candidate: event.candidate.toJSON()
+            });
           }
         };
 
         if (isCaller) {
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
-          await updateDoc(callDoc, { offer: { type: offer.type, sdp: offer.sdp } });
+          await supabase.from('calls').update({ offer: { type: offer.type, sdp: offer.sdp } }).eq('id', callId);
 
-          onSnapshot(callDoc, (snapshot) => {
-            const data = snapshot.data();
-            if (!pc.currentRemoteDescription && data?.answer) {
-              const answer = new RTCSessionDescription(data.answer);
-              pc.setRemoteDescription(answer);
-            }
-          });
+          const callChannel = supabase
+            .channel(`call-signaling-${callId}`)
+            .on(
+              'postgres_changes',
+              { event: 'UPDATE', schema: 'public', table: 'calls', filter: `id=eq.${callId}` },
+              (payload: any) => {
+                const data = payload.new;
+                if (!pc.currentRemoteDescription && data?.answer) {
+                  const answer = new RTCSessionDescription(data.answer);
+                  pc.setRemoteDescription(answer);
+                }
+              }
+            )
+            .subscribe();
 
-          onSnapshot(recipientCandidatesCollection, (snapshot) => {
-            snapshot.docChanges().forEach((change) => {
-              if (change.type === 'added') {
-                const candidate = new RTCIceCandidate(change.doc.data());
+          const candChannel = supabase
+            .channel(`recipient-candidates-${callId}`)
+            .on(
+              'postgres_changes',
+              { event: 'INSERT', schema: 'public', table: 'recipient_candidates', filter: `call_id=eq.${callId}` },
+              (payload: any) => {
+                const candidate = new RTCIceCandidate(payload.new.candidate);
                 pc.addIceCandidate(candidate);
               }
-            });
-          });
+            )
+            .subscribe();
+
         } else {
-          onSnapshot(callDoc, async (snapshot) => {
-            const data = snapshot.data();
-            if (!pc.currentRemoteDescription && data?.offer) {
-              const offer = new RTCSessionDescription(data.offer);
-              await pc.setRemoteDescription(offer);
-              const answer = await pc.createAnswer();
-              await pc.setLocalDescription(answer);
-              await updateDoc(callDoc, { answer: { type: answer.type, sdp: answer.sdp } });
-            }
-          });
+          const callChannel = supabase
+            .channel(`call-signaling-${callId}`)
+            .on(
+              'postgres_changes',
+              { event: 'UPDATE', schema: 'public', table: 'calls', filter: `id=eq.${callId}` },
+              async (payload: any) => {
+                const data = payload.new;
+                if (!pc.currentRemoteDescription && data?.offer) {
+                  const offer = new RTCSessionDescription(data.offer);
+                  await pc.setRemoteDescription(offer);
+                  const answer = await pc.createAnswer();
+                  await pc.setLocalDescription(answer);
+                  await supabase.from('calls').update({ answer: { type: answer.type, sdp: answer.sdp } }).eq('id', callId);
+                }
+              }
+            )
+            .subscribe();
 
-          onSnapshot(callerCandidatesCollection, (snapshot) => {
-            snapshot.docChanges().forEach((change) => {
-              if (change.type === 'added') {
-                const candidate = new RTCIceCandidate(change.doc.data());
+          const candChannel = supabase
+            .channel(`caller-candidates-${callId}`)
+            .on(
+              'postgres_changes',
+              { event: 'INSERT', schema: 'public', table: 'caller_candidates', filter: `call_id=eq.${callId}` },
+              (payload: any) => {
+                const candidate = new RTCIceCandidate(payload.new.candidate);
                 pc.addIceCandidate(candidate);
               }
-            });
-          });
+            )
+            .subscribe();
+          
+          // Initial fetch for invite offer if already there
+          const { data: callData } = await supabase.from('calls').select('*').eq('id', callId).single();
+          if (callData?.offer && !pc.currentRemoteDescription) {
+            const offer = new RTCSessionDescription(callData.offer);
+            await pc.setRemoteDescription(offer);
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            await supabase.from('calls').update({ answer: { type: answer.type, sdp: answer.sdp } }).eq('id', callId);
+          }
         }
 
         initSTT();
@@ -242,16 +245,6 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
         console.error('Failed to init WebRTC', err);
         onClose();
       }
-    };
-
-    const startReconnectionCountdown = () => {
-      if (reconnectionTimeoutRef.current) clearTimeout(reconnectionTimeoutRef.current);
-      setReconnectAttempts(prev => prev + 1);
-      
-      reconnectionTimeoutRef.current = setTimeout(() => {
-        console.log('Reconnection failed, closing call');
-        endCall();
-      }, 3000);
     };
 
     const setupDataChannel = (dc: RTCDataChannel) => {
@@ -331,21 +324,13 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
 
   const handleTranslation = async (text: string) => {
     if (!text) return;
-    // Lower length threshold for faster processing if needed
     setIsTranslating(true);
     try {
+      // Translate from whatever their language is to MY native language
       const translated = await translateText(text, profile.nativeLanguage);
       setTranslatedSubtitles(translated);
       
-      // Voice to Voice (TTS) - Play translation if user wants it (or automatically for fluid experience)
-      const utterance = new SpeechSynthesisUtterance(translated);
-      const voiceMap: {[key: string]: string} = {
-        'Spanish': 'es-MX', 'English': 'en-US', 'French': 'fr-FR', 'German': 'de-DE'
-      };
-      utterance.lang = voiceMap[profile.nativeLanguage] || 'es-ES';
-      utterance.rate = 1.1; // Slightly faster for real-time feel
-      window.speechSynthesis.speak(utterance);
-      
+      // Auto-clear subtitles after 4 seconds of silence
       if (subtitleTimeoutRef.current) clearTimeout(subtitleTimeoutRef.current);
       subtitleTimeoutRef.current = setTimeout(() => {
         setRemoteSubtitles('');
@@ -411,11 +396,7 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
         }));
       }
 
-      // If text is long enough but not final, we could still translate it to reduce lag
-      if (!isFinal && transcript.length > 50) {
-         // handleTranslation(transcript); // Removed to avoid duplicate TTS, but good for pure text lag
-      }
-
+      // Reset local subtitle timer
       if (isFinal) {
         if (subtitleTimeoutRef.current) clearTimeout(subtitleTimeoutRef.current);
         subtitleTimeoutRef.current = setTimeout(() => setMySubtitles(''), 3000);
@@ -454,13 +435,6 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
       audioTrack.enabled = newMicState;
       setIsMicOn(newMicState);
       
-      // Update Firestore
-      if (callId) {
-        updateDoc(doc(db, 'calls', callId), {
-          [isCaller ? 'callerMuted' : 'recipientMuted']: !newMicState
-        }).catch(console.error);
-      }
-      
       if (newMicState) {
         if (!isRecognitionActiveRef.current) {
           try {
@@ -481,15 +455,8 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
 
   const toggleVideo = () => {
     if (localStream) {
-      const newState = !isVideoOn;
-      localStream.getVideoTracks()[0].enabled = newState;
-      setIsVideoOn(newState);
-
-      if (callId) {
-        updateDoc(doc(db, 'calls', callId), {
-          [isCaller ? 'callerVideoOff' : 'recipientVideoOff']: !newState
-        }).catch(console.error);
-      }
+      localStream.getVideoTracks()[0].enabled = !isVideoOn;
+      setIsVideoOn(!isVideoOn);
     }
   };
 
@@ -510,7 +477,7 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
   const endCall = () => {
     stopAllTracks(localStream);
     if (callId) {
-      updateDoc(doc(db, 'calls', callId), { status: 'ended' }).catch(console.error);
+      supabase.from('calls').update({ status: 'ended' }).eq('id', callId).then(({ error }) => { if (error) console.error(error); });
     }
     onClose();
   };
@@ -530,44 +497,18 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
         
         {/* Remote Video (Main) / Voice Call Avatar */}
         <div className="flex-1 md:absolute md:inset-0">
-          <div className="relative w-full h-full">
-            {type === 'video' ? (
-              <>
-                {remoteVideoOff ? (
-                  <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900">
-                    <div className="w-24 h-24 rounded-full bg-gray-800 flex items-center justify-center text-gray-500 mb-4 border-2 border-white/5">
-                      <VideoOff className="w-10 h-10" />
-                    </div>
-                    <p className="text-white font-bold">{remoteName}</p>
-                    <p className="text-[10px] text-gray-500 uppercase tracking-widest mt-1">{t('Cámara Apagada', lang)}</p>
-                  </div>
-                ) : (
-                  <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
-                )}
-              </>
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center bg-w-sidebar">
-                <div className="relative mb-6">
+          {type === 'video' ? (
+            <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center bg-w-sidebar">
+               <div className="relative mb-6">
                   <div className="absolute -inset-8 bg-w-accent/10 rounded-full animate-pulse"></div>
-                  <img 
-                    src={profile.photoURL || 'https://picsum.photos/seed/user/200/200'} 
-                    alt={remoteName} 
-                    className="w-40 h-40 rounded-full border-4 border-w-accent shadow-2xl" 
-                  />
-                </div>
-                <h2 className="text-3xl font-bold text-white mb-2">{remoteName}</h2>
-                <p className="text-w-accent font-mono tracking-widest uppercase text-xs">{t('Llamada de Voz', lang)} • Gemini AI</p>
-              </div>
-            )}
-
-            {/* Remote Status (Muted) Overlay */}
-            {remoteMuted && (
-              <div className="absolute top-6 left-6 bg-red-500/80 backdrop-blur-md px-3 py-1.5 rounded-full flex items-center gap-2 border border-white/10 shadow-lg z-30">
-                <MicOff className="w-3.5 h-3.5 text-white" />
-                <span className="text-[10px] font-black text-white uppercase tracking-tighter">{t('Silenciado', lang)}</span>
-              </div>
-            )}
-          </div>
+                  <img src={profile.photoURL} alt={remoteName} className="w-40 h-40 rounded-full border-4 border-w-accent shadow-2xl" />
+               </div>
+               <h2 className="text-3xl font-bold text-white mb-2">{remoteName}</h2>
+               <p className="text-w-accent font-mono tracking-widest uppercase text-xs">{t('Llamada de Voz', lang)} • Gemini AI</p>
+            </div>
+          )}
         </div>
         {!remoteStream && type === 'video' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm z-10 text-white">
@@ -651,7 +592,7 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
               initial={{ y: 100, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 100, opacity: 0 }}
-              className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-8 flex flex-col items-center gap-6 z-40"
+              className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/80 to-transparent p-8 flex flex-col items-center gap-6 z-40 pb-12"
             >
               
               {callStatus === 'accepted' && (
@@ -661,28 +602,58 @@ export default function VideoCall({ profile, remotePeerId, remoteName, callId, i
                  </div>
               )}
 
-              <div className="flex items-center justify-center gap-4 md:gap-8">
-                <button onClick={toggleMic} title={t(isMicOn ? 'Silenciar' : 'Activar Micrófono', lang)} className={cn("w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all shadow-xl active:scale-95 group relative", isMicOn ? "bg-white/10 hover:bg-white/20 text-white" : "bg-red-500 text-white")}>
-                  {isMicOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
-                  {isMicOn && <div className="absolute -inset-1 border-2 border-w-accent/30 rounded-full animate-ping opacity-20 pointer-events-none"></div>}
-                </button>
-                
-                {type === 'video' && (
-                  <>
-                    <button onClick={toggleVideo} title={t(isVideoOn ? 'Apagar Cámara' : 'Encender Cámara', lang)} className={cn("w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all shadow-xl active:scale-95", isVideoOn ? "bg-white/10 hover:bg-white/20 text-white" : "bg-red-500 text-white")}>
-                      {isVideoOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-                    </button>
-                    <button onClick={handleScreenShare} title={t(isScreenSharing ? 'Dejar de Compartir' : 'Compartir Pantalla', lang)} className={cn("w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all shadow-xl active:scale-95", isScreenSharing ? "bg-w-accent text-w-bg" : "bg-white/10 hover:bg-white/20 text-white")}>
-                      {isScreenSharing ? <MonitorOff className="w-5 h-5" /> : <Monitor className="w-5 h-5" />}
-                    </button>
-                  </>
-                )}
+              <div className="flex items-center justify-center gap-3 md:gap-5 bg-white/5 backdrop-blur-xl p-4 rounded-[40px] border border-white/10">
+                {/* Device controls group */}
+                <div className="flex items-center gap-2 md:gap-4 pr-3 md:pr-5 border-r border-white/10 text-white">
+                  <button 
+                    onClick={toggleMic} 
+                    className={cn(
+                      "w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all active:scale-95", 
+                      isMicOn ? "bg-white/10 hover:bg-white/20" : "bg-red-500"
+                    )}
+                  >
+                    {isMicOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+                  </button>
+                  
+                  {type === 'video' && (
+                    <>
+                      <button 
+                        onClick={toggleVideo} 
+                        title={t(isVideoOn ? 'Apagar Cámara' : 'Encender Cámara', lang)}
+                        className={cn(
+                          "w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all active:scale-95", 
+                          isVideoOn ? "bg-white/10 hover:bg-white/20" : "bg-red-500"
+                        )}
+                      >
+                        {isVideoOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+                      </button>
+                      <button 
+                        onClick={handleScreenShare} 
+                        title={t(isScreenSharing ? 'Dejar de Compartir' : 'Compartir Pantalla', lang)}
+                        className={cn(
+                          "w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center transition-all active:scale-95", 
+                          isScreenSharing ? "bg-w-accent text-w-bg font-bold border-2 border-white/20" : "bg-white/10 hover:bg-white/20"
+                        )}
+                      >
+                        {isScreenSharing ? <MonitorOff className="w-5 h-5" /> : <Monitor className="w-5 h-5" />}
+                      </button>
+                    </>
+                  )}
 
-                <button onClick={toggleFullscreen} title={t(isFullscreen ? 'Salir de Pantalla Completa' : 'Pantalla Completa', lang)} className="w-12 h-12 md:w-14 md:h-14 bg-white/10 hover:bg-white/20 text-white rounded-full flex items-center justify-center transition-all shadow-xl active:scale-95">
-                  {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
-                </button>
+                  <button 
+                    onClick={toggleFullscreen} 
+                    className="w-12 h-12 md:w-14 md:h-14 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center transition-all active:scale-95"
+                  >
+                    {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+                  </button>
+                </div>
 
-                <button onClick={endCall} title={t('Finalizar Llamada', lang)} className="w-16 h-16 md:w-20 md:h-20 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-95 group">
+                {/* Hang up button - larger and separated */}
+                <button 
+                  onClick={endCall} 
+                  title={t('Finalizar Llamada', lang)} 
+                  className="w-16 h-16 md:w-20 md:h-20 bg-red-600 hover:bg-red-700 text-white rounded-full flex items-center justify-center shadow-2xl transition-all active:scale-95 group ml-2"
+                >
                   <PhoneOff className="w-8 h-8 group-hover:rotate-[135deg] transition-transform duration-300" />
                 </button>
               </div>

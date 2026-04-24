@@ -18,26 +18,11 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    function incoming() {
-      return request.resource.data;
-    }
-
     match /users/{userId} {
       allow read: if isSignedIn();
       allow create, update: if isOwner(userId) && 
-        incoming().uid == userId &&
-        incoming().username is string &&
-        incoming().username.size() >= 3 && incoming().username.size() <= 32;
-      
-      match /calls/incoming {
-        allow read: if isOwner(userId);
-        allow write: if isSignedIn() && (
-          // Allow anyone to ring me if they provide a valid callId
-          incoming().status == 'ringing' ||
-          // Allow me to update status (accept/decline)
-          isOwner(userId)
-        );
-      }
+        request.resource.data.keys().hasAll(['uid', 'username', 'nativeLanguage']) &&
+        request.resource.data.uid == userId;
     }
 
     match /usernames/{username} {

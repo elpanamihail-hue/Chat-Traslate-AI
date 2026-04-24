@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL, updateMetadata } from 'firebase/storage';
-import { db, storage } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { UserProfile, Chat, Message } from '../types';
 import { translateText, detectLanguage } from '../services/ai';
 import { compressImage } from '../lib/fileUtils';
@@ -14,6 +12,9 @@ import {
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import StatusIndicator from './StatusIndicator';
+import { t } from '../lib/i18n';
+import { localDb } from '../lib/db';
+import { useLiveQuery } from 'dexie-react-hooks';
 
 interface Props {
   profile: UserProfile;
@@ -22,10 +23,13 @@ interface Props {
   onCall: (peerId: string, name: string, type: 'video' | 'voice') => void;
 }
 
-import { t } from '../lib/i18n';
-
 export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  // Use LiveQuery to automatically update when localDb changes
+  const localMessages = useLiveQuery(
+    () => localDb.messages.where('chatId').equals(chat.id).sortBy('created_at'),
+    [chat.id]
+  );
+  
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -38,7 +42,9 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const otherUser = Object.values(chat.participantProfiles || {}).find(p => p.uid !== profile.uid);
+  const otherUser = chat.participantProfiles 
+    ? (Object.values(chat.participantProfiles) as UserProfile[]).find(p => p.uid !== profile.uid)
+    : undefined;
   const [otherUserStatus, setOtherUserStatus] = useState<'online' | 'offline'>('offline');
   const [memberCount, setMemberCount] = useState(chat.participants.length);
 
@@ -46,46 +52,109 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
 
   useEffect(() => {
     if (otherUser) {
-      const unsub = onSnapshot(doc(db, 'users', otherUser.uid), (docSnap) => {
-        if (docSnap.exists()) {
-          setOtherUserStatus(docSnap.data().status || 'offline');
-        }
-      }, (error) => {
-        console.error("Other user status snapshot error:", error);
+      const channel = supabase
+        .channel(`user-status-${otherUser.uid}`)
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'users', filter: `uid=eq.${otherUser.uid}` },
+          (payload) => {
+            setOtherUserStatus((payload.new as UserProfile).status || 'offline');
+          }
+        )
+        .subscribe();
+      
+      // Initial fetch
+      supabase.from('users').select('status').eq('uid', otherUser.uid).single().then(({ data }) => {
+        if (data) setOtherUserStatus(data.status || 'offline');
       });
-      return () => unsub();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
   }, [otherUser?.uid]);
 
   useEffect(() => {
-    const q = query(
-      collection(db, 'chats', chat.id, 'messages'),
-      orderBy('createdAt', 'asc')
-    );
+    // Delta Sync Logic
+    const loadDelta = async () => {
+      // Find latest message timestamp in local storage
+      const lastMsgs = await localDb.messages
+        .where('chatId')
+        .equals(chat.id)
+        .reverse()
+        .sortBy('created_at');
+      
+      const lastTimestamp = lastMsgs[0]?.created_at || new Date(0).toISOString();
 
-    const unsub = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Message));
-      setMessages(msgs);
+      // Fetch from Supabase
+      const { data: newMsgs, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('chatId', chat.id)
+        .gt('created_at', lastTimestamp)
+        .order('created_at', { ascending: true });
 
-      // Automatic Translation Logic
-      msgs.forEach(async (msg) => {
-        if (msg.senderId !== profile.uid && msg.text && !msg.translations?.[profile.nativeLanguage]) {
-          // Check if it's already translated to our language
-          // To avoid infinite loop, we only translate if originalLanguage is different
-          if (msg.originalLanguage && msg.originalLanguage !== profile.nativeLanguage) {
-             const translated = await translateText(msg.text, profile.nativeLanguage);
-             await updateDoc(doc(db, 'chats', chat.id, 'messages', msg.id), {
-               [`translations.${profile.nativeLanguage}`]: translated
-             });
+      if (!error && newMsgs) {
+        for (const msg of newMsgs) {
+          const message: Message = {
+            ...msg,
+            created_at: msg.created_at,
+            id: msg.id
+          };
+          await localDb.messages.put({ ...message, chatId: chat.id });
+          
+          // Automatic Translation logic
+          if (message.senderId !== profile.uid && message.text && !message.translations?.[profile.nativeLanguage]) {
+            if (message.originalLanguage && message.originalLanguage !== profile.nativeLanguage) {
+               try {
+                 const translated = await translateText(message.text, profile.nativeLanguage);
+                 await supabase
+                   .from('messages')
+                   .update({
+                     translations: { ...message.translations, [profile.nativeLanguage]: translated }
+                   })
+                   .eq('id', message.id);
+               } catch (e) {
+                 console.error("Translation error:", e);
+               }
+            }
           }
         }
-      });
-    }, (error) => {
-      console.error("Messages snapshot error:", error);
-    });
+      }
 
-    return () => unsub();
+      // Live listener for new messages
+      const channel = supabase
+        .channel(`chat-room-${chat.id}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'messages', filter: `chatId=eq.${chat.id}` },
+          async (payload) => {
+            const rawMsg = payload.new as any;
+            const message: Message = {
+              ...rawMsg,
+              created_at: rawMsg.created_at,
+              id: rawMsg.id
+            };
+
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              await localDb.messages.put({ ...message, chatId: chat.id });
+            }
+          }
+        )
+        .subscribe();
+
+      return channel;
+    };
+
+    let channelPromise = loadDelta();
+    return () => {
+      channelPromise.then(channel => {
+        if (channel) supabase.removeChannel(channel);
+      });
+    };
   }, [chat.id]);
+
+  const messages = localMessages || [];
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -104,39 +173,28 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
       let fileName = '';
       let audioUrl = '';
 
-      // ... existing upload logic ...
       if (audioBlob) {
-        const audioRef = ref(storage, `chats/${chat.id}/audios/${Date.now()}.webm`);
-        const uploadTask = uploadBytesResumable(audioRef, audioBlob);
-        audioUrl = await new Promise((resolve, reject) => {
-          uploadTask.on('state_changed', 
-            snapshot => setUploadProgress((snapshot.bytesTransferred / snapshot.totalBytes) * 100),
-            err => reject(err),
-            () => getDownloadURL(uploadTask.snapshot.ref).then(resolve).catch(reject)
-          );
-        });
+        const path = `audios/${chat.id}/${Date.now()}.webm`;
+        const { error } = await supabase.storage
+          .from('chat-assets')
+          .upload(path, audioBlob);
+        if (error) throw error;
+        const { data: urlData } = supabase.storage.from('chat-assets').getPublicUrl(path);
+        audioUrl = urlData.publicUrl;
       }
 
       if (file) {
-        const fileRef = ref(storage, `chats/${chat.id}/${Date.now()}_${file.name}`);
-        const metadata = {
-          contentDisposition: `attachment; filename="${file.name}"`,
-          customMetadata: { originalName: file.name }
-        };
-        const uploadTask = uploadBytesResumable(fileRef, file, metadata);
-        fileUrl = await new Promise((resolve, reject) => {
-          uploadTask.on('state_changed', 
-            snapshot => setUploadProgress((snapshot.bytesTransferred / snapshot.totalBytes) * 100),
-            err => reject(err),
-            () => getDownloadURL(uploadTask.snapshot.ref).then(resolve).catch(reject)
-          );
-        });
+        const path = `files/${chat.id}/${Date.now()}_${file.name}`;
+        const { error } = await supabase.storage
+          .from('chat-assets')
+          .upload(path, file);
+        if (error) throw error;
+        const { data: urlData } = supabase.storage.from('chat-assets').getPublicUrl(path);
+        fileUrl = urlData.publicUrl;
         fileName = file.name;
       }
 
       const textToSend = inputText.trim();
-      if (!textToSend && !file && !audioBlob) return;
-
       const detectedLang = textToSend ? await detectLanguage(textToSend) : '';
       
       const translations: { [lang: string]: string } = {};
@@ -157,40 +215,31 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
         }
       }
 
-      await addDoc(collection(db, 'chats', chat.id, 'messages'), {
-        chatId: chat.id,
-        senderId: profile.uid,
-        text: textToSend,
-        originalLanguage: detectedLang || profile.nativeLanguage,
-        translations: translations,
-        fileUrl,
-        fileName,
-        audioUrl,
-        audioDuration,
-        createdAt: serverTimestamp()
-      });
+      const { error: msgError } = await supabase
+        .from('messages')
+        .insert({
+          chatId: chat.id,
+          senderId: profile.uid,
+          text: textToSend,
+          originalLanguage: detectedLang || profile.nativeLanguage,
+          translations: translations,
+          fileUrl,
+          fileName,
+          audioUrl,
+          audioDuration,
+          created_at: new Date().toISOString()
+        });
 
-      await updateDoc(doc(db, 'chats', chat.id), {
-        lastMessage: textToSend || (audioUrl ? '🎤 Audio' : `Archivo: ${fileName}`),
-        lastMessageSenderId: profile.uid,
-        updatedAt: serverTimestamp()
-      });
+      if (msgError) throw msgError;
 
-      // Trigger Push Notifications to all participants except sender
-      if (chat.isGroup) {
-         // Batch notifications could be done here if needed
-      } else if (otherUser?.fcmToken) {
-        fetch('/api/send-notification', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            token: otherUser.fcmToken,
-            title: `Nuevo mensaje de ${profile.username}`,
-            body: textToSend || 'Has recibido un archivo',
-            url: window.location.origin
-          })
-        }).catch(err => console.error('Push error:', err));
-      }
+      await supabase
+        .from('chats')
+        .update({
+          lastMessage: textToSend || (audioUrl ? '🎤 Audio' : `Archivo: ${fileName}`),
+          lastMessageSenderId: profile.uid,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', chat.id);
 
       setInputText('');
       setFile(null);
@@ -255,7 +304,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
           </button>
           <div className="relative">
             <img src={chat.isGroup ? chat.groupPhoto : otherUser?.photoURL} alt={chat.isGroup ? chat.groupName : otherUser?.username} className="w-10 h-10 rounded-full border border-white/10 shadow-sm" referrerPolicy="no-referrer" />
-            {!chat.isGroup && <StatusIndicator uid={otherUser?.uid || ''} className="border-w-header" />}
+            {!chat.isGroup && <StatusIndicator status={otherUserStatus} className="border-w-header" />}
           </div>
             <div className="flex flex-col">
             <span className="font-semibold text-w-text leading-tight">{chat.isGroup ? chat.groupName : otherUser?.username}</span>
@@ -311,8 +360,8 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
           const translatedText = msg.translations?.[currentLang];
           const isTranslated = !!translatedText && msg.originalLanguage !== currentLang;
           
-          if (!msg.createdAt && !isMine) return null; // Wait for server timestamp
-          const isPending = !msg.createdAt;
+          if (!msg.created_at && !isMine) return null; // Wait for server timestamp
+          const isPending = !msg.created_at;
 
           return (
             <motion.div 
@@ -419,7 +468,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
                       isMine ? "text-white/50" : "text-w-muted"
                     )}>
                       <span className="text-[9px] font-mono">
-                        {msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '...'}
+                        {msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '...'}
                       </span>
                       {isMine && <CheckCheck className="w-3 h-3 text-[#34b7f1]" />}
                     </div>
