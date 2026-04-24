@@ -50,6 +50,8 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
         if (docSnap.exists()) {
           setOtherUserStatus(docSnap.data().status || 'offline');
         }
+      }, (error) => {
+        console.error("Other user status snapshot error:", error);
       });
       return () => unsub();
     }
@@ -78,6 +80,8 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
           }
         }
       });
+    }, (error) => {
+      console.error("Messages snapshot error:", error);
     });
 
     return () => unsub();

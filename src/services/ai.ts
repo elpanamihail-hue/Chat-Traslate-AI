@@ -18,7 +18,7 @@ export async function translateText(text: string, targetLanguage: string): Promi
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Traduce fielmente el siguiente texto al ${targetLanguage.toUpperCase()}, manteniendo el tono original y sin añadir comentarios. Texto: "${text}"`,
+      contents: `Traducción ultra-rápida al ${targetLanguage.toUpperCase()}. Solo devuelve el texto traducido: "${text}"`,
     });
     return response.text.trim() || text;
   } catch (error) {

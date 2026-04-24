@@ -54,6 +54,10 @@
         "recipientId": { "type": "string" },
         "type": { "type": "string", "enum": ["audio", "video"] },
         "status": { "type": "string", "enum": ["ringing", "accepted", "declined", "ended"] },
+        "callerMuted": { "type": "boolean" },
+        "recipientMuted": { "type": "boolean" },
+        "callerVideoOff": { "type": "boolean" },
+        "recipientVideoOff": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["callerId", "recipientId", "status", "createdAt"]

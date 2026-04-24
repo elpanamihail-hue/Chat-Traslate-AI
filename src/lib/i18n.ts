@@ -457,6 +457,14 @@ export const UI_STRINGS: { [key: string]: { [lang: string]: string } } = {
     'Italian': 'Aggiungi membri...',
     'Portuguese': 'Adicionar membros...'
   },
+  'No hay chats todavía. ¡Empieza uno nuevo!': {
+    'Spanish': 'No hay chats todavía. ¡Empieza uno nuevo!',
+    'English': 'No chats yet. Start a new one!',
+    'French': 'Pas encore de chats. Commencez-en un nouveau!',
+    'German': 'Noch keine Chats. Starte einen neuen!',
+    'Italian': 'Ancora nessuna chat. Incominciane una nuova!',
+    'Portuguese': 'Ainda não há chats. Comece um nuevo!'
+  },
   'Mundial 2026': {
     'Spanish': 'Mundial 2026',
     'English': 'World Cup 2026',

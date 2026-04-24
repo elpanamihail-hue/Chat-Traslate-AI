@@ -42,8 +42,36 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
     );
 
     const unsub = onSnapshot(q, (snapshot) => {
-      const chatsData: Chat[] = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Chat));
-      setChats(chatsData);
+      const loadProfiles = async () => {
+        try {
+          const chatsData: Chat[] = [];
+          for (const d of snapshot.docs) {
+            const data = d.data() as Chat;
+            const chatWithId = { ...data, id: d.id };
+            
+            // Legacy support: fetch participant profiles if missing in chat doc
+            if (!data.participantProfiles && !data.isGroup) {
+              const otherId = data.participants.find(p => p !== profile.uid);
+              if (otherId) {
+                const userDoc = await getDoc(doc(db, 'users', otherId));
+                if (userDoc.exists()) {
+                  chatWithId.participantProfiles = {
+                    [profile.uid]: profile,
+                    [otherId]: userDoc.data() as UserProfile
+                  };
+                }
+              }
+            }
+            chatsData.push(chatWithId);
+          }
+          setChats(chatsData);
+        } catch (err) {
+          console.error("Error processing chats:", err);
+        }
+      };
+      loadProfiles();
+    }, (err) => {
+      console.error("Chat list snapshot error:", err);
     });
 
     return () => unsub();
@@ -192,12 +220,18 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
           </div>
         ) : (
           <div className="space-y-0.5">
+            {chats.length === 0 && !isSearching && (
+              <div className="p-8 text-center">
+                <p className="text-sm text-w-muted italic">{t('No hay chats todavía. ¡Empieza uno nuevo!', lang)}</p>
+              </div>
+            )}
             {chats.filter(c => {
+               if (!searchTerm) return true;
                if (c.isGroup) {
                  return c.groupName?.toLowerCase().includes(searchTerm.toLowerCase());
                }
                const other = Object.values(c.participantProfiles || {}).find(p => (p as UserProfile).uid !== profile.uid) as UserProfile | undefined;
-               return other?.username.toLowerCase().includes(searchTerm.toLowerCase());
+               return other?.username.toLowerCase().includes(searchTerm.toLowerCase()) || false;
             }).map(chat => {
               const otherUser = Object.values(chat.participantProfiles || {}).find(p => (p as UserProfile).uid !== profile.uid) as UserProfile | undefined;
               

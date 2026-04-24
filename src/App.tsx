@@ -1,13 +1,10 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { useState, useEffect } from 'react';
-import { useAuthState } from 'react-firebase-hooks/auth';
-import { doc, onSnapshot, collection, query, where, getDoc, addDoc, serverTimestamp, getDocs } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
+import { doc, onSnapshot, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from './lib/firebase';
 import { UserProfile, Chat } from './types';
+
+// Components
 import Login from './components/Login';
 import Onboarding from './components/Onboarding';
 import SetupWizard from './components/SetupWizard';
@@ -16,487 +13,291 @@ import ChatRoom from './components/ChatRoom';
 import Settings from './components/Settings';
 import VideoCall from './components/VideoCall';
 import IncomingCall from './components/IncomingCall';
-import PermissionModal from './components/PermissionModal';
 import PWAPrompt from './components/PWAPrompt';
-import { motion, AnimatePresence } from 'motion/react';
-import { Loader2, ShieldCheck, ChevronLeft, AlertTriangle } from 'lucide-react';
-import { showNotification, showCallNotification, stopVibration } from './lib/notifications';
-import { usePermissions } from './hooks/usePermissions';
-import { updateDoc, deleteDoc } from 'firebase/firestore';
+import PermissionModal from './components/PermissionModal';
 
-import { t } from './lib/i18n';
+import { AnimatePresence, motion } from 'motion/react';
+import { cn } from './lib/utils';
+import { Loader2 } from 'lucide-react';
 
 export default function App() {
-  const [user, loading] = useAuthState(auth);
+  const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [fetchingProfile, setFetchingProfile] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [activeChat, setActiveChat] = useState<Chat | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [activeCall, setActiveCall] = useState<{peerId: string, remoteName: string, callId?: string, type?: 'video' | 'voice', isCaller?: boolean} | null>(null);
-  const [incomingCall, setIncomingCall] = useState<any>(null);
-  const [sessionStartTime] = useState(Date.now());
-  const [sessionSetupDone, setSessionSetupDone] = useState(false);
-  const [showPermissionModal, setShowPermissionModal] = useState(false);
+  
+  // Call management
+  const [activeCall, setActiveCall] = useState<{
+    callId: string;
+    remotePeerId: string;
+    remoteName: string;
+    isCaller: boolean;
+    type: 'video' | 'voice';
+  } | null>(null);
+  
+  const [incomingCall, setIncomingCall] = useState<{
+    callId: string;
+    callerId: string;
+    callerName: string;
+    callerPhoto: string;
+    type: 'video' | 'voice';
+  } | null>(null);
 
-  const { mic, camera, notifications, requestAll } = usePermissions();
-  const lang = profile?.nativeLanguage || 'English';
-
-  // Presence Logic
   useEffect(() => {
-    if (user) {
-      const userRef = doc(db, 'users', user.uid);
-      
-      const setOnline = async () => {
-        try {
-          await updateDoc(userRef, {
-            status: 'online',
-            lastChanged: serverTimestamp()
-          });
-        } catch (e) {
-          console.error("Error setting online status:", e);
-        }
-      };
+    const unsubAuth = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      if (!u) {
+        setProfile(null);
+        setLoading(false);
+      }
+    });
 
-      const setOffline = async () => {
-        try {
-          await updateDoc(userRef, {
-            status: 'offline',
-            lastChanged: serverTimestamp()
-          });
-        } catch (e) {
-          console.error("Error setting offline status:", e);
-        }
-      };
+    return () => unsubAuth();
+  }, []);
 
-      setOnline();
+  useEffect(() => {
+    if (!user) return;
 
-      const handleVisibilityChange = () => {
-        if (document.visibilityState === 'visible') {
-          setOnline();
-        } else {
-          setOffline();
-        }
-      };
+    const unsubProfile = onSnapshot(doc(db, 'users', user.uid), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data() as UserProfile;
+        setProfile(data);
+        
+        // Analytics/Status tagging
+        updateDoc(doc(db, 'users', user.uid), {
+          status: 'online',
+          lastChanged: serverTimestamp()
+        });
+      } else {
+        setProfile(null);
+      }
+      setLoading(false);
+    }, (error) => {
+      console.error("Profile snapshot error:", error);
+      setLoading(false);
+    });
 
-      const handleBeforeUnload = () => {
-        setOffline();
-      };
+    // Handle Unload for status
+    const handleUnload = () => {
+      if (user) {
+        updateDoc(doc(db, 'users', user.uid), {
+          status: 'offline',
+          lastChanged: serverTimestamp()
+        });
+      }
+    };
+    window.addEventListener('beforeunload', handleUnload);
 
-      window.addEventListener('beforeunload', handleBeforeUnload);
-      document.addEventListener('visibilitychange', handleVisibilityChange);
-
-      return () => {
-        setOffline();
-        window.removeEventListener('beforeunload', handleBeforeUnload);
-        document.removeEventListener('visibilitychange', handleVisibilityChange);
-      };
-    }
+    return () => {
+      unsubProfile();
+      window.removeEventListener('beforeunload', handleUnload);
+    };
   }, [user]);
 
-  // Check if we need to show the initial permission modal
+  // Call Listener
   useEffect(() => {
-    if (mic !== 'loading' && camera !== 'loading' && notifications !== 'loading') {
-      const needsPermissions = mic === 'prompt' || camera === 'prompt' || notifications === 'prompt';
-      if (needsPermissions) {
-        setShowPermissionModal(true);
-      }
-    }
-  }, [mic, camera, notifications]);
+    if (!profile) return;
 
-  
-  // Listen for Service Worker messages
-  useEffect(() => {
-    const handleSWMessage = (event: MessageEvent) => {
-      if (event.data?.type === 'CALL_ACTION') {
-        if (event.data.action === 'accept') {
-          handleAcceptCall();
-        } else if (event.data.action === 'decline') {
-          handleDeclineCall();
-        }
-      }
-    };
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.addEventListener('message', handleSWMessage);
-      return () => navigator.serviceWorker.removeEventListener('message', handleSWMessage);
-    }
-  }, [incomingCall]);
-
-  // Variants for WhatsApp-style sliding
-  const slideVariants = {
-    initial: { x: '100%', opacity: 1 },
-    animate: { x: 0, opacity: 1 },
-    exit: { x: '100%', opacity: 1 },
-  };
-
-  const desktopTransition = { type: 'spring', damping: 25, stiffness: 200 };
-  const mobileTransition = { type: 'tween', duration: 0.3, ease: 'easeOut' };
-
-  // Handle Invite Link
-  useEffect(() => {
-    const handleInvite = async () => {
-      if (!profile) return;
-      
-      const params = new URLSearchParams(window.location.search);
-      const inviteUid = params.get('invite');
-      
-      if (inviteUid && inviteUid !== profile.uid) {
-        try {
-          const q = query(
-            collection(db, 'chats'),
-            where('participants', 'array-contains', profile.uid)
-          );
-          const snap = await getDocs(q);
-          const existingChat = snap.docs.find(d => {
-            const data = d.data() as Chat;
-            return data.participants.includes(inviteUid);
+    // Listen for calls where I am the recipient
+    const unsubCalls = onSnapshot(doc(db, 'users', profile.uid, 'calls', 'incoming'), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.status === 'ringing') {
+          setIncomingCall({
+            callId: data.callId,
+            callerId: data.callerId,
+            callerName: data.callerName,
+            callerPhoto: data.callerPhoto,
+            type: data.type
           });
-
-          if (existingChat) {
-            const data = existingChat.data() as Chat;
-            const chatData = { id: existingChat.id, ...data };
-            
-            const otherDoc = await getDoc(doc(db, 'users', inviteUid));
-            if (otherDoc.exists()) {
-              chatData.participantProfiles = {
-                [profile.uid]: profile,
-                [inviteUid]: otherDoc.data() as UserProfile
-              };
-              setActiveChat(chatData);
-            }
-          } else {
-            const otherDoc = await getDoc(doc(db, 'users', inviteUid));
-            if (otherDoc.exists()) {
-              const otherUser = otherDoc.data() as UserProfile;
-              const newChatRef = await addDoc(collection(db, 'chats'), {
-                participants: [profile.uid, inviteUid],
-                updatedAt: serverTimestamp(),
-                lastMessage: ''
-              });
-
-              setActiveChat({
-                id: newChatRef.id,
-                participants: [profile.uid, inviteUid],
-                updatedAt: new Date(),
-                participantProfiles: {
-                  [profile.uid]: profile,
-                  [inviteUid]: otherUser
-                }
-              });
-            }
-          }
-          
-          const newUrl = window.location.origin + window.location.pathname;
-          window.history.replaceState({}, '', newUrl);
-        } catch (err) {
-          console.error("Error handling invite:", err);
-        }
-      }
-    };
-
-    handleInvite();
-  }, [profile]);
-
-  useEffect(() => {
-    if (user) {
-      const unsub = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
-        if (docSnap.exists()) {
-          setProfile(docSnap.data() as UserProfile);
-        } else {
-          setProfile(null);
-        }
-        setFetchingProfile(false);
-      }, (err) => {
-        console.error("Error fetching profile:", err);
-        setFetchingProfile(false);
-      });
-      return () => unsub();
-    } else if (!loading) {
-      setProfile(null);
-      setFetchingProfile(false);
-    }
-  }, [user, loading]);
-
-  useEffect(() => {
-    if (profile?.theme) {
-      document.documentElement.setAttribute('data-theme', profile.theme);
-    } else {
-      document.documentElement.removeAttribute('data-theme');
-    }
-  }, [profile?.theme]);
-
-  // Global Notification Listener
-  useEffect(() => {
-    if (profile) {
-      const q = query(
-        collection(db, 'chats'),
-        where('participants', 'array-contains', profile.uid)
-      );
-
-      const unsub = onSnapshot(q, (snapshot) => {
-        snapshot.docChanges().forEach((change) => {
-          if (change.type === 'modified') {
-            const chatData = { id: change.doc.id, ...change.doc.data() } as Chat;
-            const lastUpdated = chatData.updatedAt?.toDate?.()?.getTime() || 0;
-            
-            if (
-              chatData.lastMessageSenderId && 
-              chatData.lastMessageSenderId !== profile.uid &&
-              activeChat?.id !== chatData.id &&
-              lastUpdated > sessionStartTime // Only notify for new messages in this session
-            ) {
-              const senderProfile = chatData.participantProfiles?.[chatData.lastMessageSenderId];
-              const title = chatData.isGroup 
-                ? `${chatData.groupName} (${senderProfile?.username || 'Usuario'})`
-                : (senderProfile?.username || 'ChatTranslate');
-              
-              showNotification(
-                title,
-                chatData.lastMessage || 'Has recibido un nuevo mensaje',
-                profile.nativeLanguage,
-                chatData.isGroup ? chatData.groupPhoto : senderProfile?.photoURL
-              );
-            }
-          }
-        });
-      });
-      return () => unsub();
-    }
-  }, [profile, activeChat, sessionStartTime]);
-
-  // Incoming Call Listener
-  useEffect(() => {
-    if (profile) {
-      // Create a date for "recent" calls (e.g., in the last 1 minute)
-      // This prevents very old 'ringing' calls from popping up on startup
-      const oneMinuteAgo = new Date(Date.now() - 60000);
-
-      const q = query(
-        collection(db, 'calls'),
-        where('recipientId', '==', profile.uid),
-        where('status', '==', 'ringing'),
-        where('createdAt', '>', oneMinuteAgo)
-      );
-
-      const unsub = onSnapshot(q, (snapshot) => {
-        if (!snapshot.empty) {
-          const callData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as any;
-          setIncomingCall(callData);
-          
-          showCallNotification(
-            callData.callerName,
-            callData.id,
-            callData.type,
-            callData.callerPhoto
-          );
         } else {
           setIncomingCall(null);
-          stopVibration();
         }
-      }, (err) => {
-        console.error("Call listener error:", err);
-      });
-      return () => {
-        unsub();
-        stopVibration();
-      };
-    }
-  }, [profile]);
+      } else {
+        setIncomingCall(null);
+      }
+    }, (error) => {
+      console.error("Incoming calls snapshot error:", error);
+    });
 
-  const initiateCall = async (recipientId: string, recipientName: string, type: 'video' | 'voice' = 'video') => {
+    return () => unsubCalls();
+  }, [profile?.uid]);
+
+  const handleStartCall = async (peerId: string, name: string, type: 'video' | 'voice') => {
     if (!profile) return;
-    
-    try {
-      const callRef = await addDoc(collection(db, 'calls'), {
-        callerId: profile.uid,
-        callerName: profile.username,
-        callerPhoto: profile.photoURL || '',
-        recipientId,
-        type,
-        status: 'ringing',
-        createdAt: serverTimestamp()
-      });
 
-      setActiveCall({ peerId: recipientId, remoteName: recipientName, callId: callRef.id, isCaller: true, type });
-    } catch (err) {
-      console.error("Error initiating call:", err);
-    }
+    const callId = Math.random().toString(36).substring(7);
+    const callRef = doc(db, 'calls', callId);
+
+    await setDoc(callRef, {
+      callerId: profile.uid,
+      recipientId: peerId,
+      status: 'ringing',
+      type,
+      createdAt: serverTimestamp(),
+      callerMuted: false,
+      recipientMuted: false,
+      callerVideoOff: type !== 'video',
+      recipientVideoOff: type !== 'video'
+    });
+
+    // Notify recipient
+    await setDoc(doc(db, 'users', peerId, 'calls', 'incoming'), {
+      callId,
+      callerId: profile.uid,
+      callerName: profile.username,
+      callerPhoto: profile.photoURL,
+      type,
+      status: 'ringing'
+    });
+
+    setActiveCall({
+      callId,
+      remotePeerId: peerId,
+      remoteName: name,
+      isCaller: true,
+      type
+    });
   };
 
   const handleAcceptCall = async () => {
-    if (!incomingCall) return;
-    try {
-      await updateDoc(doc(db, 'calls', incomingCall.id), {
-        status: 'accepted'
-      });
-      setActiveCall({ 
-        peerId: incomingCall.callerId, 
-        remoteName: incomingCall.callerName, 
-        callId: incomingCall.id, 
-        isCaller: false, 
-        type: incomingCall.type 
-      });
-      setIncomingCall(null);
-    } catch (err) {
-      console.error("Error accepting call:", err);
-    }
+    if (!incomingCall || !profile) return;
+
+    await updateDoc(doc(db, 'calls', incomingCall.callId), {
+      status: 'accepted'
+    });
+
+    await updateDoc(doc(db, 'users', profile.uid, 'calls', 'incoming'), {
+      status: 'accepted'
+    });
+
+    setActiveCall({
+      callId: incomingCall.callId,
+      remotePeerId: incomingCall.callerId,
+      remoteName: incomingCall.callerName,
+      isCaller: false,
+      type: incomingCall.type
+    });
+    setIncomingCall(null);
   };
 
   const handleDeclineCall = async () => {
-    if (!incomingCall) return;
-    try {
-      await updateDoc(doc(db, 'calls', incomingCall.id), {
-        status: 'declined'
-      });
-      setIncomingCall(null);
-    } catch (err) {
-      console.error("Error declining call:", err);
-    }
+    if (!incomingCall || !profile) return;
+
+    await updateDoc(doc(db, 'calls', incomingCall.callId), {
+      status: 'declined'
+    });
+
+    await updateDoc(doc(db, 'users', profile.uid, 'calls', 'incoming'), {
+      status: 'declined'
+    });
+
+    setIncomingCall(null);
   };
 
-  if (loading || (user && fetchingProfile)) {
+  const [showPermissionModal, setShowPermissionModal] = useState(false);
+
+  useEffect(() => {
+    if (profile && profile.setupComplete) {
+      const timer = setTimeout(() => {
+        if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+          setShowPermissionModal(true);
+        }
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [profile?.setupComplete]);
+
+  if (loading) {
     return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-w-bg">
-        <Loader2 className="w-10 h-10 animate-spin text-w-accent" />
-        <p className="mt-4 text-w-muted font-mono uppercase tracking-widest text-[10px]">{t('Iniciando ChatTranslate...', lang)}</p>
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-w-bg gap-6">
+        <div className="relative">
+          <div className="w-16 h-16 border-4 border-w-accent/20 border-t-w-accent rounded-full animate-spin" />
+          <Loader2 className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 text-w-accent animate-pulse" />
+        </div>
+        <p className="text-[10px] font-bold text-w-muted uppercase tracking-[0.4em] animate-pulse">Sincronizando Gemini Protocol...</p>
       </div>
     );
   }
 
-  if (!user) {
-    return <Login />;
-  }
-
-  // Handle immediate permission trigger for ALL users who haven't completed setup in this session
-  // or haven't saved it to their profile.
-  if (!sessionSetupDone && (!profile || (profile && !profile.setupComplete))) {
-    return (
-      <SetupWizard 
-        onComplete={async () => {
-          setSessionSetupDone(true);
-          if (profile) {
-            try {
-              await updateDoc(doc(db, 'users', profile.uid), { setupComplete: true });
-            } catch (e) {
-              console.error("Error updating setup state:", e);
-            }
-          }
-        }} 
-      />
-    );
-  }
-
-  if (!profile && !fetchingProfile) {
-    return <Onboarding user={user} />;
-  }
-
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-  const showBanner = mic === 'denied' || camera === 'denied' || notifications === 'denied';
+  if (!user) return <Login />;
+  if (!profile) return <Onboarding user={user} />;
+  if (!profile.setupComplete) return <SetupWizard onComplete={() => updateDoc(doc(db, 'users', profile.uid), { setupComplete: true })} />;
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-w-bg overflow-hidden font-sans text-w-text relative">
-      {/* Permission Warning Banner */}
-      <AnimatePresence>
-        {showBanner && (
-          <motion.div 
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="bg-[#25D366]/10 border-b border-[#25D366]/20 overflow-hidden shrink-0"
-          >
-            <div className="max-w-4xl mx-auto p-3 flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <AlertTriangle className="w-5 h-5 text-[#25D366]" />
-                <p className="text-[11px] font-bold uppercase tracking-widest text-[#25D366]">
-                  {t('Acción Requerida: Permisos del Sistema Faltantes', lang)}
-                </p>
-              </div>
-              <button 
-                onClick={() => requestAll()}
-                className="bg-[#25D366] text-w-bg px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-tighter hover:bg-[#25D366]/80 transition-all active:scale-95 shadow-lg shadow-[#25D366]/20"
-              >
-                {t('Conceder Permisos', lang)}
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="flex-1 flex overflow-hidden w-full relative">
-        {/* Base Layer: Chat List (Sidebar) */}
-      <div className={`
-        ${(showSettings || activeChat) && isMobile ? 'hidden' : 'flex'}
-        w-full md:w-[320px] h-full border-r border-white/10 flex-col bg-w-sidebar shrink-0
-      `}>
-        {profile && (
-          <ChatList 
-            profile={profile} 
-            onChatSelect={setActiveChat} 
-            activeChatId={activeChat?.id}
-            onOpenSettings={() => setShowSettings(true)}
-          />
-        )}
+    <div className={cn(
+      "h-screen w-screen bg-w-bg overflow-hidden flex flex-col md:flex-row font-sans selection:bg-w-accent/30",
+      profile.theme === 'light' && "theme-light",
+      profile.theme === 'worldcup' && "theme-worldcup"
+    )}>
+      {/* Sidebar for Desktop / Bottom Bar for Mobile */}
+      <div className={cn(
+        "bg-w-sidebar border-white/5 z-40 transition-all duration-500",
+        activeChat ? "hidden md:flex md:w-80 lg:w-96 flex-col border-r" : "flex flex-col w-full md:w-80 lg:w-96 md:border-r"
+      )}>
+        <ChatList 
+          profile={profile} 
+          onChatSelect={(chat) => setActiveChat(chat)} 
+          activeChatId={activeChat?.id}
+          onOpenSettings={() => setShowSettings(true)}
+        />
       </div>
 
-      {/* Main Viewport for Desktop / Overlays for Mobile */}
-      <div className="flex-1 overflow-hidden relative h-full bg-w-bg">
-        <AnimatePresence initial={false}>
-          {showSettings && profile ? (
+      {/* Main Content Areas */}
+      <div className="flex-1 flex flex-col relative overflow-hidden">
+        <AnimatePresence mode="wait">
+          {showSettings ? (
             <motion.div 
-              key="settings-view"
-              variants={slideVariants}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              transition={isMobile ? mobileTransition : desktopTransition}
-              className="fixed inset-0 z-[100] md:relative md:inset-auto md:z-0 md:flex-1 md:h-full bg-w-bg"
+              key="settings"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="absolute inset-0 z-50"
             >
               <Settings profile={profile} onClose={() => setShowSettings(false)} />
             </motion.div>
-          ) : activeChat && profile ? (
+          ) : activeChat ? (
             <motion.div 
-              key={`chat-room-${activeChat.id}`}
-              variants={slideVariants}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              transition={isMobile ? mobileTransition : desktopTransition}
-              className="fixed inset-0 z-[100] md:relative md:inset-auto md:z-0 md:flex-1 md:h-full bg-w-bg"
+              key={activeChat.id}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex-1"
             >
               <ChatRoom 
                 profile={profile} 
                 chat={activeChat} 
                 onBack={() => setActiveChat(null)}
-                onCall={(peerId, name, type) => initiateCall(peerId, name, type)}
+                onCall={handleStartCall}
               />
             </motion.div>
           ) : (
-            <div className="hidden md:flex flex-1 h-full items-center justify-center text-center p-8 relative chat-bg-overlay">
-              <div className="absolute inset-0 bg-gradient-to-b from-w-accent/5 to-transparent pointer-events-none"></div>
+            <div className="hidden md:flex flex-1 flex-col items-center justify-center p-12 text-center select-none bg-w-bg/50">
+              <div className="relative mb-8">
+                 <div className="absolute inset-0 bg-w-accent/5 blur-[100px] rounded-full"></div>
+                 <div className="w-24 h-24 bg-w-sidebar rounded-[2.5rem] flex items-center justify-center border border-white/5 shadow-2xl relative rotate-3 hover:rotate-0 transition-transform">
+                    <img src="/logo.png" alt="Logo" className="w-12 h-12 opacity-50 grayscale contrast-125" onError={(e) => (e.currentTarget.src = 'https://www.gstatic.com/images/branding/product/2x/translate_64dp.png')} />
+                 </div>
+              </div>
+              <h2 className="text-3xl font-black text-w-text tracking-tighter mb-4 uppercase opacity-80">Selecciona un canal</h2>
+              <p className="text-w-muted text-sm max-w-sm mx-auto leading-relaxed font-medium">
+                Conéctate con tu gente a través de las fronteras. <br/>
+                <span className="text-w-accent/60 font-bold">Impulsado por Gemini AI Engine v3.1</span>
+              </p>
               
-              <div className="flex flex-col items-center max-w-lg">
-                <div className="w-64 h-64 bg-w-header/50 backdrop-blur-3xl rounded-full flex items-center justify-center mb-10 shadow-[0_0_100px_rgba(66,203,165,0.05)] border border-white/5 group transition-all hover:scale-105 duration-700">
-                  <div className="relative w-48 h-48 rounded-full overflow-hidden flex items-center justify-center p-8 bg-w-accent/10 border border-w-accent/20">
-                    <div className="absolute inset-0 bg-[#42CBA5]/10 animate-pulse"></div>
-                    <img 
-                      src="https://picsum.photos/seed/chattranslate/400/400" 
-                      alt="ChatTranslate" 
-                      className="w-32 h-32 relative z-10 opacity-80 group-hover:scale-110 transition-transform duration-700"
-                      referrerPolicy="no-referrer"
-                    />
-                  </div>
+              <div className="mt-12 flex items-center gap-8 opacity-20 grayscale grayscale-50">
+                <div className="flex flex-col items-center gap-2">
+                   <div className="w-1.5 h-1.5 rounded-full bg-w-accent animate-pulse"></div>
+                   <span className="text-[10px] font-black tracking-widest text-w-muted uppercase">Voice</span>
                 </div>
-                <h1 className="text-4xl font-black text-w-text mb-4 tracking-tighter uppercase">ChatTranslate</h1>
-                <p className="text-w-muted max-w-md text-sm leading-relaxed font-medium">
-                  {t('Conéctate sin barreras con traducciones de {engine}. Envía mensajes y archivos de forma segura con privacidad global.', lang, { engine: <span className="text-w-accent font-bold">Gemini AI</span> })}
-                </p>
-                <div className="mt-16 flex flex-col items-center gap-4">
-                  <div className="px-4 py-2 bg-w-header border border-white/10 rounded-full flex items-center gap-3 shadow-xl">
-                    <div className="w-2 h-2 rounded-full bg-w-accent animate-pulse shadow-[0_0_8px_#42CBA5]"></div>
-                    <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-w-muted">{t('Motor ChatTranslate Activo', lang)}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px] text-white/20 font-bold uppercase tracking-widest">
-                    <ShieldCheck className="w-3 h-3" /> {t('Cifrado de Extremo a Extremo', lang)}
-                  </div>
+                <div className="flex flex-col items-center gap-2 text-w-muted">
+                    <div className="w-1.5 h-1.5 rounded-full bg-w-muted"></div>
+                   <span className="text-[10px] font-black tracking-widest uppercase">Encryption</span>
+                </div>
+                <div className="flex flex-col items-center gap-2 text-w-muted">
+                   <div className="w-1.5 h-1.5 rounded-full bg-w-muted"></div>
+                   <span className="text-[10px] font-black tracking-widest uppercase">Privacy</span>
                 </div>
               </div>
             </div>
@@ -504,51 +305,50 @@ export default function App() {
         </AnimatePresence>
       </div>
 
-      <AnimatePresence mode="wait">
-        {activeCall && profile && (
-          <VideoCall 
-            profile={profile}
-            remotePeerId={activeCall.peerId}
-            remoteName={activeCall.remoteName}
-            callId={activeCall.callId}
-            isCaller={activeCall.isCaller}
-            type={activeCall.type}
-            onClose={async () => {
-              if (activeCall.callId) {
-                try {
-                  await updateDoc(doc(db, 'calls', activeCall.callId), { status: 'ended' });
-                } catch (e) {}
-              }
-              setActiveCall(null);
-            }}
-          />
+      {/* Overlays / Modals */}
+      <AnimatePresence>
+        {incomingCall && (
+          <div className="fixed inset-0 z-[500] flex justify-center items-start pt-10 pointer-events-none">
+            <IncomingCall 
+              callerName={incomingCall.callerName}
+              callerPhoto={incomingCall.callerPhoto}
+              type={incomingCall.type}
+              lang={profile.nativeLanguage}
+              onAccept={handleAcceptCall}
+              onDecline={handleDeclineCall}
+            />
+          </div>
+        )}
+
+        {activeCall && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[1000] bg-w-bg"
+          >
+            <VideoCall 
+              profile={profile}
+              remotePeerId={activeCall.remotePeerId}
+              remoteName={activeCall.remoteName}
+              callId={activeCall.callId}
+              isCaller={activeCall.isCaller}
+              type={activeCall.type}
+              onClose={() => setActiveCall(null)}
+            />
+          </motion.div>
         )}
       </AnimatePresence>
 
       <AnimatePresence>
-        {incomingCall && profile && (
-          <IncomingCall 
-            callerName={incomingCall.callerName}
-            callerPhoto={incomingCall.callerPhoto}
-            type={incomingCall.type}
-            lang={profile.nativeLanguage}
-            onAccept={handleAcceptCall}
-            onDecline={handleDeclineCall}
-          />
-        )}
-      </AnimatePresence>
-      <AnimatePresence>
         {showPermissionModal && (
           <PermissionModal 
-            lang={lang} 
+            lang={profile.nativeLanguage} 
             onClose={() => setShowPermissionModal(false)} 
           />
         )}
       </AnimatePresence>
-
       <PWAPrompt />
-      </div>
     </div>
   );
 }
-

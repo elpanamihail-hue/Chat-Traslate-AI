@@ -1,6 +1,6 @@
 {
   "name": "ChatTranslate",
-  "description": "Mensajería global con traducción instantánea mediante Gemini AI y videollamadas con subtítulos en tiempo real.",
+  "description": "Global messaging with instant translation via Gemini AI and video calls with real-time subtitles.",
   "requestFramePermissions": ["camera", "microphone", "notifications"],
   "majorCapabilities": []
 }

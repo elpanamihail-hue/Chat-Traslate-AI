@@ -16,6 +16,8 @@ export default function StatusIndicator({ uid, className }: Props) {
       if (docSnap.exists()) {
         setStatus(docSnap.data().status || 'offline');
       }
+    }, (error) => {
+      console.error("Status indicator snapshot error:", error);
     });
 
     return () => unsub();
