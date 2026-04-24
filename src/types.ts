@@ -6,8 +6,10 @@ export interface UserProfile {
   email: string;
   updatedAt: any;
   fcmToken?: string;
-  theme?: 'light' | 'dark';
+  theme?: 'light' | 'dark' | 'worldcup';
   setupComplete?: boolean;
+  status?: 'online' | 'offline';
+  lastChanged?: any;
 }
 
 export interface Chat {
@@ -17,6 +19,10 @@ export interface Chat {
   lastMessageSenderId?: string;
   updatedAt: any;
   participantProfiles?: { [uid: string]: UserProfile };
+  isGroup?: boolean;
+  groupName?: string;
+  groupPhoto?: string;
+  createdBy?: string;
 }
 
 export interface Message {

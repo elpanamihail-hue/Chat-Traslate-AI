@@ -17,8 +17,8 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-// Using the specific Database ID from environment or user request
-const databaseId = import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || '(default)';
+// Using the specific Database ID from user request
+const databaseId = 'ai-studio-b7bff536-3bd5-4e02-8b80-b0b4f25794f6';
 export const db = getFirestore(app, databaseId);
 
 export const storage = getStorage(app);

@@ -65,6 +65,14 @@ export const UI_STRINGS: { [key: string]: { [lang: string]: string } } = {
     'Italian': 'Online',
     'Portuguese': 'Online'
   },
+  'Desconectado': {
+    'Spanish': 'Desconectado',
+    'English': 'Offline',
+    'French': 'Déconnecté',
+    'German': 'Offline',
+    'Italian': 'Disconnesso',
+    'Portuguese': 'Desconectado'
+  },
   'Configuración': {
     'Spanish': 'Configuración',
     'English': 'Settings',
@@ -408,6 +416,54 @@ export const UI_STRINGS: { [key: string]: { [lang: string]: string } } = {
     'German': 'Vollbild beenden',
     'Italian': 'Esci dallo Schermo Intero',
     'Portuguese': 'Sair da Tela Cheia'
+  },
+  'miembros': {
+    'Spanish': 'miembros',
+    'English': 'members',
+    'French': 'membres',
+    'German': 'Mitglieder',
+    'Italian': 'membri',
+    'Portuguese': 'membros'
+  },
+  'Crear Grupo': {
+    'Spanish': 'Crear Grupo',
+    'English': 'Create Group',
+    'French': 'Créer un groupe',
+    'German': 'Gruppe erstellen',
+    'Italian': 'Crea gruppo',
+    'Portuguese': 'Criar grupo'
+  },
+  'Nombre del grupo': {
+    'Spanish': 'Nombre del grupo',
+    'English': 'Group name',
+    'French': 'Nom du groupe',
+    'German': 'Gruppenname',
+    'Italian': 'Nome del gruppo',
+    'Portuguese': 'Nome do grupo'
+  },
+  'Ej: Equipo de Proyecto': {
+    'Spanish': 'Ej: Equipo de Proyecto',
+    'English': 'e.g. Project Team',
+    'French': 'ex: Équipe de projet',
+    'German': 'z.B. Projektteam',
+    'Italian': 'es: Team di progetto',
+    'Portuguese': 'Ex: Equipe de Projeto'
+  },
+  'Añadir miembros...': {
+    'Spanish': 'Añadir miembros...',
+    'English': 'Add members...',
+    'French': 'Ajouter des membres...',
+    'German': 'Mitglieder hinzufügen...',
+    'Italian': 'Aggiungi membri...',
+    'Portuguese': 'Adicionar membros...'
+  },
+  'Mundial 2026': {
+    'Spanish': 'Mundial 2026',
+    'English': 'World Cup 2026',
+    'French': 'Coupe du monde 2026',
+    'German': 'Weltmeisterschaft 2026',
+    'Italian': 'Coppa del Mondo 2026',
+    'Portuguese': 'Copa do Mundo 2026'
   }
 };
 

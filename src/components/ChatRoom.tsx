@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import StatusIndicator from './StatusIndicator';
 
 interface Props {
   profile: UserProfile;
@@ -38,8 +39,21 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const otherUser = Object.values(chat.participantProfiles || {}).find(p => p.uid !== profile.uid);
+  const [otherUserStatus, setOtherUserStatus] = useState<'online' | 'offline'>('offline');
+  const [memberCount, setMemberCount] = useState(chat.participants.length);
 
   const lang = profile.nativeLanguage;
+
+  useEffect(() => {
+    if (otherUser) {
+      const unsub = onSnapshot(doc(db, 'users', otherUser.uid), (docSnap) => {
+        if (docSnap.exists()) {
+          setOtherUserStatus(docSnap.data().status || 'offline');
+        }
+      });
+      return () => unsub();
+    }
+  }, [otherUser?.uid]);
 
   useEffect(() => {
     const q = query(
@@ -77,7 +91,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
 
   const handleSendMessage = async (e?: React.FormEvent, audioBlob?: Blob, audioDuration?: number) => {
     if (e) e.preventDefault();
-    if ((!inputText && !file && !audioBlob) || sending || !otherUser) return;
+    if ((!inputText && !file && !audioBlob) || sending) return;
 
     setSending(true);
     setUploadProgress(0);
@@ -86,7 +100,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
       let fileName = '';
       let audioUrl = '';
 
-      // Handle Audio Upload
+      // ... existing upload logic ...
       if (audioBlob) {
         const audioRef = ref(storage, `chats/${chat.id}/audios/${Date.now()}.webm`);
         const uploadTask = uploadBytesResumable(audioRef, audioBlob);
@@ -99,9 +113,7 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
         });
       }
 
-      // Handle File Upload (Original code preserved)
       if (file) {
-        // Original Quality - No compression
         const fileRef = ref(storage, `chats/${chat.id}/${Date.now()}_${file.name}`);
         const metadata = {
           contentDisposition: `attachment; filename="${file.name}"`,
@@ -124,10 +136,21 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
       const detectedLang = textToSend ? await detectLanguage(textToSend) : '';
       
       const translations: { [lang: string]: string } = {};
-      if (textToSend && otherUser.nativeLanguage !== detectedLang) {
-        // Explicitly translate to the other user's language before sending
-        const translated = await translateText(textToSend, otherUser.nativeLanguage);
-        translations[otherUser.nativeLanguage] = translated;
+      if (textToSend && chat.participantProfiles) {
+        const uniqueLangs = Array.from(new Set(
+          Object.values(chat.participantProfiles)
+            .map(p => p.nativeLanguage)
+            .filter(l => l !== detectedLang)
+        ));
+
+        for (const targetLang of uniqueLangs) {
+          try {
+            const translated = await translateText(textToSend, targetLang);
+            translations[targetLang] = translated;
+          } catch (e) {
+            console.error(`Translation failed for ${targetLang}`, e);
+          }
+        }
       }
 
       await addDoc(collection(db, 'chats', chat.id, 'messages'), {
@@ -149,8 +172,10 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
         updatedAt: serverTimestamp()
       });
 
-      // Trigger Push Notification to Other User
-      if (otherUser.fcmToken) {
+      // Trigger Push Notifications to all participants except sender
+      if (chat.isGroup) {
+         // Batch notifications could be done here if needed
+      } else if (otherUser?.fcmToken) {
         fetch('/api/send-notification', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -224,21 +249,33 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
           <button onClick={onBack} className="md:hidden p-1 hover:bg-white/10 rounded-full transition-colors text-w-text">
             <ChevronLeft className="w-6 h-6" />
           </button>
-          <img src={otherUser?.photoURL} alt={otherUser?.username} className="w-10 h-10 rounded-full border border-white/10 shadow-sm" referrerPolicy="no-referrer" />
+          <div className="relative">
+            <img src={chat.isGroup ? chat.groupPhoto : otherUser?.photoURL} alt={chat.isGroup ? chat.groupName : otherUser?.username} className="w-10 h-10 rounded-full border border-white/10 shadow-sm" referrerPolicy="no-referrer" />
+            {!chat.isGroup && <StatusIndicator uid={otherUser?.uid || ''} className="border-w-header" />}
+          </div>
             <div className="flex flex-col">
-            <span className="font-semibold text-w-text leading-tight">{otherUser?.username}</span>
-            <span className="text-[10px] text-w-accent font-bold uppercase tracking-widest">
-              {t('En línea', lang)} — {t('Traductor Gemini', lang)}
+            <span className="font-semibold text-w-text leading-tight">{chat.isGroup ? chat.groupName : otherUser?.username}</span>
+            <span className={cn(
+              "text-[10px] font-bold uppercase tracking-widest",
+              chat.isGroup ? "text-w-accent" : (otherUserStatus === 'online' ? "text-w-accent" : "text-w-muted")
+            )}>
+              {chat.isGroup 
+                ? `${chat.participants.length} ${t('miembros', lang)}` 
+                : t(otherUserStatus === 'online' ? 'En línea' : 'Desconectado', lang)} — {t('Traductor Gemini', lang)}
             </span>
           </div>
         </div>
         <div className="flex items-center gap-5 text-w-muted">
-          <button onClick={() => onCall(otherUser?.uid || '', otherUser?.username || '', 'video')} className="hover:text-w-accent transition-colors">
-            <Video className="w-5 h-5" />
-          </button>
-          <button onClick={() => onCall(otherUser?.uid || '', otherUser?.username || '', 'voice')} className="hover:text-w-accent transition-colors">
-            <Phone className="w-5 h-5" />
-          </button>
+          {!chat.isGroup && (
+            <>
+              <button onClick={() => onCall(otherUser?.uid || '', otherUser?.username || '', 'video')} className="hover:text-w-accent transition-colors">
+                <Video className="w-5 h-5" />
+              </button>
+              <button onClick={() => onCall(otherUser?.uid || '', otherUser?.username || '', 'voice')} className="hover:text-w-accent transition-colors">
+                <Phone className="w-5 h-5" />
+              </button>
+            </>
+          )}
           <div className="w-[1px] h-6 bg-white/10 mx-1"></div>
           <button className="hover:text-w-accent transition-colors">
             <MoreVertical className="w-5 h-5" />
@@ -284,6 +321,11 @@ export default function ChatRoom({ profile, chat, onBack, onCall }: Props) {
                 isMine ? "items-end" : "items-start"
               )}
             >
+              {chat.isGroup && !isMine && msg.senderId && (
+                <span className="text-[10px] font-bold text-w-muted mb-1 ml-1 uppercase tracking-widest">
+                  {chat.participantProfiles?.[msg.senderId]?.username || 'User'}
+                </span>
+              )}
               <div className={cn(
                 "max-w-[85%] md:max-w-[70%] p-3 rounded-xl shadow-lg relative group min-w-[80px]",
                 isMine 

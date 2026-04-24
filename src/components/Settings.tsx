@@ -3,7 +3,7 @@ import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { UserProfile } from '../types';
 import { LANGUAGES } from '../languages';
-import { Check, X, LogOut, Globe, User, Shield, Bell, HelpCircle, ChevronLeft, Sun, Moon, Mic, Video, MoreVertical } from 'lucide-react';
+import { Check, X, LogOut, Globe, User, Shield, Bell, HelpCircle, ChevronLeft, Sun, Moon, Mic, Video, MoreVertical, Trophy } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
 import { usePermissions } from '../hooks/usePermissions';
@@ -26,7 +26,7 @@ import { t } from '../lib/i18n';
 export default function Settings({ profile, onClose }: Props) {
   const [username, setUsername] = useState(profile.username);
   const [language, setLanguage] = useState(profile.nativeLanguage);
-  const [theme, setTheme] = useState(profile.theme || 'dark');
+  const [theme, setTheme] = useState<UserProfile['theme']>(profile.theme || 'dark');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const { mic, camera, notifications, requestAll } = usePermissions();
@@ -160,7 +160,7 @@ export default function Settings({ profile, onClose }: Props) {
           <h3 className="text-w-accent font-bold text-xs uppercase tracking-[0.2em] mb-8 flex items-center gap-3">
              {theme === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />} {t('Apariencia', lang)}
           </h3>
-          <div className="bg-w-header/40 p-1 rounded-3xl border border-w-muted/10 backdrop-blur-sm flex">
+          <div className="bg-w-header/40 p-1 rounded-3xl border border-w-muted/10 backdrop-blur-sm flex gap-1">
             <button 
               onClick={() => setTheme('dark')}
               className={cn(
@@ -174,10 +174,19 @@ export default function Settings({ profile, onClose }: Props) {
               onClick={() => setTheme('light')}
               className={cn(
                 "flex-1 flex items-center justify-center gap-3 py-4 rounded-2xl transition-all font-bold text-sm",
-                theme === 'light' ? "bg-w-accent text-white shadow-lg" : "text-w-muted hover:text-w-text"
+                theme === 'light' ? "bg-w-accent text-[#111B21] shadow-lg" : "text-w-muted hover:text-w-text"
               )}
             >
               <Sun className="w-4 h-4" /> {t('Claro', lang)}
+            </button>
+            <button 
+              onClick={() => setTheme('worldcup')}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-3 py-4 rounded-2xl transition-all font-bold text-sm",
+                theme === 'worldcup' ? "bg-w-accent text-[#052e16] shadow-lg" : "text-w-muted hover:text-w-text"
+              )}
+            >
+              <Trophy className="w-4 h-4" /> {t('Mundial 2026', lang)}
             </button>
           </div>
         </section>

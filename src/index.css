@@ -43,6 +43,19 @@
   --darker: #E9EDEF;
 }
 
+[data-theme='worldcup'] {
+  --bg: #052e16;
+  --sidebar: #064e3b;
+  --header: #065f46;
+  --text: #f0fdf4;
+  --muted: #86efac;
+  --accent: #fbbf24;
+  --bubble-sent: #14532d;
+  --bubble-received: #064e3b;
+  --input: #064e3b;
+  --darker: #022c22;
+}
+
 @layer base {
   body {
     background-color: var(--color-w-bg);

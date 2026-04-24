@@ -39,8 +39,59 @@ export default function App() {
   const [showPermissionModal, setShowPermissionModal] = useState(false);
 
   const { mic, camera, notifications, requestAll } = usePermissions();
-
   const lang = profile?.nativeLanguage || 'English';
+
+  // Presence Logic
+  useEffect(() => {
+    if (user) {
+      const userRef = doc(db, 'users', user.uid);
+      
+      const setOnline = async () => {
+        try {
+          await updateDoc(userRef, {
+            status: 'online',
+            lastChanged: serverTimestamp()
+          });
+        } catch (e) {
+          console.error("Error setting online status:", e);
+        }
+      };
+
+      const setOffline = async () => {
+        try {
+          await updateDoc(userRef, {
+            status: 'offline',
+            lastChanged: serverTimestamp()
+          });
+        } catch (e) {
+          console.error("Error setting offline status:", e);
+        }
+      };
+
+      setOnline();
+
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+          setOnline();
+        } else {
+          setOffline();
+        }
+      };
+
+      const handleBeforeUnload = () => {
+        setOffline();
+      };
+
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+
+      return () => {
+        setOffline();
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      };
+    }
+  }, [user]);
 
   // Check if we need to show the initial permission modal
   useEffect(() => {
@@ -193,13 +244,16 @@ export default function App() {
               activeChat?.id !== chatData.id &&
               lastUpdated > sessionStartTime // Only notify for new messages in this session
             ) {
-              const otherUserProfile = Object.values(chatData.participantProfiles || {}).find(p => (p as UserProfile).uid !== profile.uid) as UserProfile | undefined;
+              const senderProfile = chatData.participantProfiles?.[chatData.lastMessageSenderId];
+              const title = chatData.isGroup 
+                ? `${chatData.groupName} (${senderProfile?.username || 'Usuario'})`
+                : (senderProfile?.username || 'ChatTranslate');
               
               showNotification(
-                `Mensaje de ${otherUserProfile?.username || 'ChatTranslate'}`,
+                title,
                 chatData.lastMessage || 'Has recibido un nuevo mensaje',
                 profile.nativeLanguage,
-                otherUserProfile?.photoURL
+                chatData.isGroup ? chatData.groupPhoto : senderProfile?.photoURL
               );
             }
           }

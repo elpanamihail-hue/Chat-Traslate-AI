@@ -2,8 +2,11 @@ import { useState, useEffect } from 'react';
 import { collection, query, where, orderBy, onSnapshot, getDocs, doc, getDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { UserProfile, Chat } from '../types';
-import { Search, MoreVertical, MessageSquarePlus, UserPlus, CheckCheck, Share2, ClipboardCheck } from 'lucide-react';
+import { Search, MoreVertical, MessageSquarePlus, UserPlus, CheckCheck, Share2, ClipboardCheck, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
+import StatusIndicator from './StatusIndicator';
+import CreateGroupModal from './CreateGroupModal';
+import { AnimatePresence } from 'motion/react';
 
 interface Props {
   profile: UserProfile;
@@ -20,6 +23,7 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
   const [showInviteToast, setShowInviteToast] = useState(false);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
   
   const lang = profile.nativeLanguage;
 
@@ -37,25 +41,8 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
       orderBy('updatedAt', 'desc')
     );
 
-    const unsub = onSnapshot(q, async (snapshot) => {
-      const chatsData: Chat[] = [];
-      for (const d of snapshot.docs) {
-        const data = d.data() as Chat;
-        const chatWithId = { ...data, id: d.id };
-        
-        // Fetch profiles of participants
-        const otherId = data.participants.find(p => p !== profile.uid);
-        if (otherId) {
-          const userDoc = await getDoc(doc(db, 'users', otherId));
-          if (userDoc.exists()) {
-             chatWithId.participantProfiles = {
-               [otherId]: userDoc.data() as UserProfile,
-               [profile.uid]: profile
-             };
-          }
-        }
-        chatsData.push(chatWithId);
-      }
+    const unsub = onSnapshot(q, (snapshot) => {
+      const chatsData: Chat[] = snapshot.docs.map(d => ({ ...d.data(), id: d.id } as Chat));
       setChats(chatsData);
     });
 
@@ -93,8 +80,13 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
 
     const newChatRef = await addDoc(collection(db, 'chats'), {
       participants: [profile.uid, otherUser.uid],
+      participantProfiles: {
+        [profile.uid]: profile,
+        [otherUser.uid]: otherUser
+      },
       updatedAt: serverTimestamp(),
-      lastMessage: ''
+      lastMessage: '',
+      isGroup: false
     });
 
     onChatSelect({
@@ -123,7 +115,7 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
               className="w-10 h-10 rounded-full border border-white/10"
               referrerPolicy="no-referrer"
             />
-            <div className="absolute bottom-0 right-0 w-3 h-3 bg-w-accent rounded-full border-2 border-w-header"></div>
+            <StatusIndicator uid={profile.uid} className="border-w-header" />
           </div>
           <div className="flex flex-col leading-none">
             <span className="font-semibold text-w-text text-sm">{profile.username}</span>
@@ -131,6 +123,9 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
           </div>
         </div>
         <div className="flex items-center gap-4 text-w-muted">
+          <button onClick={() => setShowCreateGroup(true)} className="hover:text-w-accent transition-colors">
+            <Users className="w-5 h-5" />
+          </button>
           <button onClick={() => setIsSearching(!isSearching)} className="hover:text-w-accent transition-colors">
             <MessageSquarePlus className="w-5 h-5" />
           </button>
@@ -198,11 +193,13 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
         ) : (
           <div className="space-y-0.5">
             {chats.filter(c => {
+               if (c.isGroup) {
+                 return c.groupName?.toLowerCase().includes(searchTerm.toLowerCase());
+               }
                const other = Object.values(c.participantProfiles || {}).find(p => (p as UserProfile).uid !== profile.uid) as UserProfile | undefined;
                return other?.username.toLowerCase().includes(searchTerm.toLowerCase());
             }).map(chat => {
               const otherUser = Object.values(chat.participantProfiles || {}).find(p => (p as UserProfile).uid !== profile.uid) as UserProfile | undefined;
-              if (!otherUser) return null;
               
               const isActive = activeChatId === chat.id;
 
@@ -215,10 +212,13 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
                     isActive && "bg-w-header border-l-w-accent"
                   )}
                 >
-                  <img src={otherUser.photoURL} alt={otherUser.username} className="w-12 h-12 rounded-full border border-white/5" referrerPolicy="no-referrer" />
+                  <div className="relative shrink-0">
+                    <img src={chat.isGroup ? chat.groupPhoto : otherUser?.photoURL} alt={chat.isGroup ? chat.groupName : otherUser?.username} className="w-12 h-12 rounded-full border border-white/5" referrerPolicy="no-referrer" />
+                    {!chat.isGroup && otherUser && <StatusIndicator uid={otherUser.uid} className="border-w-sidebar" />}
+                  </div>
                   <div className="flex-1 flex flex-col min-w-0">
                     <div className="flex justify-between items-center mb-0.5">
-                      <h3 className="font-medium text-w-text truncate">{otherUser.username}</h3>
+                      <h3 className="font-medium text-w-text truncate">{chat.isGroup ? chat.groupName : (otherUser?.username || 'Chat')}</h3>
                       <span className="text-[10px] text-w-muted">
                         {chat.updatedAt?.toDate ? chat.updatedAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
                       </span>
@@ -234,6 +234,20 @@ export default function ChatList({ profile, onChatSelect, activeChatId, onOpenSe
         )}
       </div>
       
+      <AnimatePresence>
+        {showCreateGroup && (
+          <CreateGroupModal 
+             profile={profile}
+             lang={lang}
+             onClose={() => setShowCreateGroup(false)}
+             onGroupCreated={(chatId) => {
+               setShowCreateGroup(false);
+               // The listener in ChatList will pick up the new chat
+             }}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Footer / System Info */}
       <div className="p-6 bg-w-sidebar border-t border-white/5">
         <div className="flex items-center justify-between mb-4">
